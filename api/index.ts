@@ -112,12 +112,16 @@ function falSize(fmt: string): string | { width: number; height: number } {
 }
 async function generateWithFalFlux(prompt: string, formato: string, model = 'fal-ai/flux/schnell'): Promise<string> {
   if (!FAL_KEY) throw new Error('FAL_KEY não configurada')
-  const result = await fal.subscribe(model, {
-    input: { prompt, image_size: falSize(formato), num_images: 1, output_format: 'jpeg', num_inference_steps: model.includes('schnell') ? 4 : 28 },
-  }) as { data: { images: Array<{ url: string }> } }
+  // Race against a 45s timeout to avoid Vercel function timeout (60s limit)
+  const result = await Promise.race([
+    fal.subscribe(model, {
+      input: { prompt, image_size: falSize(formato), num_images: 1, output_format: 'jpeg', num_inference_steps: model.includes('schnell') ? 4 : 28 },
+    }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('FAL.AI timeout 45s')), 45000)),
+  ]) as { data: { images: Array<{ url: string }> } }
   const imageUrl = result.data?.images?.[0]?.url
   if (!imageUrl) throw new Error('FAL.AI sem imagem')
-  const ir = await fetch(imageUrl, { signal: AbortSignal.timeout(30000) })
+  const ir = await fetch(imageUrl, { signal: AbortSignal.timeout(20000) })
   const buf = await ir.arrayBuffer()
   return `data:image/jpeg;base64,${Buffer.from(buf).toString('base64')}`
 }
@@ -179,28 +183,11 @@ async function analyzeReferenceStyle(imageDataUrl: string): Promise<string> {
   }
 }
 
-async function generateWithGeminiStyled(prompt: string, aspectRatio: string, refDataUrl: string, styleDesc: string): Promise<{ base64: string; mimeType: string }> {
-  if (!googleAI) throw new Error('GOOGLE_API_KEY não configurada')
-  const base64Match = refDataUrl.match(/^data:(image\/\w+);base64,(.+)$/)
-  if (!base64Match) throw new Error('Ref image format invalid')
-  const [, refMime, refB64] = base64Match
-  const styledPrompt = `Generate an advertisement creative image following this exact visual style: ${styleDesc}. The image content should be: ${prompt}, ${aspectHint(aspectRatio)}. Reproduce the same layout, color palette, typography style, and visual treatment as the reference but with new content.`
-  for (const model of ['gemini-2.0-flash-exp-image-generation']) {
-    try {
-      const response = await googleAI.models.generateContent({
-        model, contents: [{ role: 'user', parts: [
-          { inlineData: { data: refB64, mimeType: refMime } },
-          { text: styledPrompt },
-        ] }],
-        config: { responseModalities: ['IMAGE', 'TEXT'] },
-      })
-      const parts = response.candidates?.[0]?.content?.parts ?? []
-      const imagePart = parts.find((p: Record<string, unknown>) => p.inlineData) as { inlineData: { data: string; mimeType: string } } | undefined
-      if (!imagePart?.inlineData?.data) throw new Error('Sem imagem')
-      return { base64: imagePart.inlineData.data, mimeType: imagePart.inlineData.mimeType ?? 'image/png' }
-    } catch { /* try next */ }
-  }
-  throw new Error('Styled generation failed')
+// Styled generation via FAL.AI with enriched prompt from style analysis
+async function generateWithFalStyled(prompt: string, formato: string, styleDesc: string): Promise<string> {
+  if (!FAL_KEY) throw new Error('FAL_KEY não configurada')
+  const styledPrompt = `${prompt}, ${styleDesc}, ${aspectHint(formato)}, professional advertisement photography, luxury real estate`
+  return await generateWithFalFlux(styledPrompt, formato, 'fal-ai/flux/schnell')
 }
 
 // ── Replicate helper ──────────────────────────────────────────────────────────
@@ -218,20 +205,32 @@ async function replicateToBase64(output: unknown): Promise<string> {
   throw new Error('Formato Replicate desconhecido')
 }
 
-// ── Background image generator (cascading fallback) ──────────────────────────
+// ── Background image generator — FAL.AI primary (Gemini image gen removed) ───
 async function generateBackground(prompt: string, formato: string): Promise<string> {
-  if (googleAI) {
-    try {
-      const { base64, mimeType } = await generateWithGemini(prompt, formato)
-      return `data:${mimeType};base64,${base64}`
-    } catch { /* fallthrough */ }
-  }
+  // 1. FAL.AI Flux Schnell — primary (fast, reliable)
   if (FAL_KEY) {
-    try { return await generateWithFalFlux(prompt, formato) } catch { /* fallthrough */ }
+    try {
+      console.log(`[bg] FAL.AI Flux Schnell — formato: ${formato}`)
+      const img = await generateWithFalFlux(prompt, formato, 'fal-ai/flux/schnell')
+      console.log('[bg] ✅ FAL.AI OK')
+      return img
+    } catch (err) {
+      console.warn('[bg] FAL.AI Flux Schnell falhou, tentando Flux Dev...', String(err).slice(0, 100))
+    }
+    // 2. FAL.AI Flux Dev — slightly slower but higher quality fallback
+    try {
+      const img = await generateWithFalFlux(prompt, formato, 'fal-ai/flux/dev')
+      console.log('[bg] ✅ FAL.AI Flux Dev OK')
+      return img
+    } catch (err) {
+      console.warn('[bg] FAL.AI Flux Dev falhou:', String(err).slice(0, 100))
+    }
   }
+  // 3. Freepik Mystic — if key available
   if (FREEPIK_KEY) {
     try { return await generateWithMystic(prompt, formato) } catch { /* fallthrough */ }
   }
+  // 4. Replicate Flux — if key available
   if (replicate) {
     try {
       const output = await replicate.run('black-forest-labs/flux-schnell', {
@@ -240,6 +239,7 @@ async function generateBackground(prompt: string, formato: string): Promise<stri
       return `data:image/jpeg;base64,${await replicateToBase64(output)}`
     } catch { /* fallthrough */ }
   }
+  console.error('[bg] ❌ Nenhum gerador disponível — FAL_KEY configurado?', !!FAL_KEY)
   return ''
 }
 
@@ -487,18 +487,17 @@ app.post('/api/campanha/generate-creative', async (req, res) => {
 
     let bgDataUrl = ''
 
-    // Try reference-based styled generation first
-    if (hasRef && googleAI) {
+    // Try reference-based styled generation first (FAL.AI + Gemini style analysis)
+    if (hasRef && FAL_KEY) {
       const refKey = refs[0].slice(0, 60)
       let styleDesc = styleCache.get(refKey)
-      if (!styleDesc) {
+      if (!styleDesc && googleAI) {
         styleDesc = await analyzeReferenceStyle(refs[0])
         if (styleDesc) styleCache.set(refKey, styleDesc)
       }
       if (styleDesc) {
         try {
-          const { base64, mimeType } = await generateWithGeminiStyled(bgPrompt, formato ?? '4:5', refs[0], styleDesc)
-          bgDataUrl = `data:${mimeType};base64,${base64}`
+          bgDataUrl = await generateWithFalStyled(bgPrompt, formato ?? '4:5', styleDesc)
         } catch { /* fallback below */ }
       }
     }
