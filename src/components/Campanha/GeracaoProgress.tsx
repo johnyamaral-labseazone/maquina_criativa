@@ -35,8 +35,7 @@ export function GeracaoProgress() {
   const incluirApresentadora  = useCampanhaStore((s) => s.incluirApresentadora)
   const estruturasCount       = useCampanhaStore((s) => s.estruturasCount)
   const variacoesCount        = useCampanhaStore((s) => s.variacoesCount)
-  const narradoCount          = useCampanhaStore((s) => s.narradoCount)
-  const apresentadoraCount    = useCampanhaStore((s) => s.apresentadoraCount)
+  // narradoCount and apresentadoraCount accessed via useCampanhaStore.getState() in pipeline
   const creatives             = useCampanhaStore((s) => s.creatives)
 
   const advanceStep     = useCampanhaStore((s) => s.advanceStep)
@@ -44,7 +43,7 @@ export function GeracaoProgress() {
   const updateCreative  = useCampanhaStore((s) => s.updateCreative)
   const setGeracaoError = useCampanhaStore((s) => s.setGeracaoError)
   const setStep         = useCampanhaStore((s) => s.setStep)
-  const startGenerating = useCampanhaStore((s) => s.startGenerating)
+
 
   const didStart = useRef(false)
 
@@ -162,6 +161,8 @@ export function GeracaoProgress() {
               copy: creative.copy,
               formato: creative.formato,
               briefing: state.parsedBriefing,
+              referenceImages: state.referenceImages.map((r) => r.data),
+              assetsContext: state.assetsContext,
             }, 120_000)
             updateCreative(creative.id, { backgroundImage: data.imageDataUrl, status: 'done' })
           } catch (err) {

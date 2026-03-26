@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useCampanhaStore } from '../../stores/campanhaStore'
 import type { CopyVariation } from '../../stores/campanhaStore'
 import {
-  ChevronLeft, ChevronDown, ChevronUp, ArrowRight, Zap, PenLine,
+  ChevronLeft, ChevronDown, ChevronUp, Zap, PenLine,
   Type, AlignLeft, MousePointerClick, Film,
 } from 'lucide-react'
 
@@ -15,7 +15,7 @@ const ESTRUTURA_LABELS = [
 export function CopyEditor() {
   const copyVariations    = useCampanhaStore((s) => s.copyVariations)
   const estruturasCount   = useCampanhaStore((s) => s.estruturasCount)
-  const variacoesCount    = useCampanhaStore((s) => s.variacoesCount)
+  const _variacoesCount   = useCampanhaStore((s) => s.variacoesCount)
   const updateCopy        = useCampanhaStore((s) => s.updateCopyVariation)
   const setStep           = useCampanhaStore((s) => s.setStep)
   const startGenerating   = useCampanhaStore((s) => s.startGenerating)

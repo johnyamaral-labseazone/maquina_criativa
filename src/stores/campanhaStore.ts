@@ -1,6 +1,13 @@
 import { create } from 'zustand'
 
 export type CampanhaStep = 'briefing' | 'assets' | 'parametros' | 'editarCopies' | 'gerando' | 'resultados'
+
+export interface ReferenceImage {
+  data: string        // base64 data URL
+  name: string
+  stylePrompt?: string   // extracted by AI analysis
+  styleDescription?: string
+}
 export type CampanhaTom = 'profissional' | 'amigavel' | 'urgente' | 'luxo'
 export type CampanhaFormato = '4:5' | '9:16' | '1:1'
 export type GeracaoStepStatus = 'pending' | 'active' | 'done' | 'error' | 'skipped'
@@ -134,6 +141,7 @@ interface CampanhaState {
   assetsContext: string       // free text guidance for AI
   presenterImage: string | null       // base64 data URL of presenter photo
   presenterImageName: string | null
+  referenceImages: ReferenceImage[]   // visual style references (max 3)
 
   // — Parâmetros
   campaignName: string
@@ -168,6 +176,9 @@ interface CampanhaState {
   setAssetsUrl: (url: string) => void
   setAssetsContext: (ctx: string) => void
   setPresenterImage: (data: string | null, name: string | null) => void
+  addReferenceImage: (img: ReferenceImage) => void
+  removeReferenceImage: (index: number) => void
+  updateReferenceImage: (index: number, updates: Partial<ReferenceImage>) => void
   setCampaignName: (n: string) => void
   setEstruturasCount: (n: number) => void
   setVariacoesCount: (n: number) => void
@@ -204,6 +215,7 @@ export const useCampanhaStore = create<CampanhaState>((set, get) => ({
   assetsContext: '',
   presenterImage: null,
   presenterImageName: null,
+  referenceImages: [],
 
   campaignName: '',
   estruturasCount: 3,
@@ -234,6 +246,11 @@ export const useCampanhaStore = create<CampanhaState>((set, get) => ({
   setAssetsUrl: (assetsUrl) => set({ assetsUrl }),
   setAssetsContext: (assetsContext) => set({ assetsContext }),
   setPresenterImage: (presenterImage, presenterImageName) => set({ presenterImage, presenterImageName }),
+  addReferenceImage: (img) => set((s) => ({ referenceImages: [...s.referenceImages, img] })),
+  removeReferenceImage: (index) => set((s) => ({ referenceImages: s.referenceImages.filter((_, i) => i !== index) })),
+  updateReferenceImage: (index, updates) => set((s) => ({
+    referenceImages: s.referenceImages.map((img, i) => i === index ? { ...img, ...updates } : img),
+  })),
   setCampaignName: (campaignName) => set({ campaignName }),
 
   setEstruturasCount: (n) => set((s) => ({
@@ -319,6 +336,7 @@ export const useCampanhaStore = create<CampanhaState>((set, get) => ({
       assetsContext: '',
       presenterImage: null,
       presenterImageName: null,
+      referenceImages: [],
       campaignName: '',
       estruturasCount: 3,
       variacoesCount: 5,

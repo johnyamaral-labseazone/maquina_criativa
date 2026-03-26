@@ -1,20 +1,26 @@
 import { useRef } from 'react'
 import { useCampanhaStore } from '../../stores/campanhaStore'
-import { Link2, FileText, User2, ChevronRight, Upload, X, CheckCircle2 } from 'lucide-react'
+import { Link2, FileText, User2, ChevronRight, Upload, X, CheckCircle2, ImageIcon, Plus } from 'lucide-react'
+
+const MAX_REFERENCES = 3
 
 export function AssetsInput() {
   const assetsUrl      = useCampanhaStore((s) => s.assetsUrl)
   const assetsContext  = useCampanhaStore((s) => s.assetsContext)
   const presenterImage = useCampanhaStore((s) => s.presenterImage)
   const presenterImageName = useCampanhaStore((s) => s.presenterImageName)
+  const referenceImages = useCampanhaStore((s) => s.referenceImages)
   const parsedBriefing = useCampanhaStore((s) => s.parsedBriefing)
 
-  const setAssetsUrl      = useCampanhaStore((s) => s.setAssetsUrl)
-  const setAssetsContext   = useCampanhaStore((s) => s.setAssetsContext)
-  const setPresenterImage  = useCampanhaStore((s) => s.setPresenterImage)
-  const setStep            = useCampanhaStore((s) => s.setStep)
+  const setAssetsUrl         = useCampanhaStore((s) => s.setAssetsUrl)
+  const setAssetsContext     = useCampanhaStore((s) => s.setAssetsContext)
+  const setPresenterImage    = useCampanhaStore((s) => s.setPresenterImage)
+  const addReferenceImage    = useCampanhaStore((s) => s.addReferenceImage)
+  const removeReferenceImage = useCampanhaStore((s) => s.removeReferenceImage)
+  const setStep              = useCampanhaStore((s) => s.setStep)
 
-  const presenterInputRef = useRef<HTMLInputElement>(null)
+  const presenterInputRef  = useRef<HTMLInputElement>(null)
+  const referenceInputRef  = useRef<HTMLInputElement>(null)
 
   const handlePresenterUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -26,7 +32,27 @@ export function AssetsInput() {
     reader.readAsDataURL(file)
   }
 
-  const canContinue = true // assets step is optional — always allow continuing
+  const handleReferenceUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files) return
+    const remaining = MAX_REFERENCES - referenceImages.length
+    const toProcess = Array.from(files).slice(0, remaining)
+
+    for (const file of toProcess) {
+      const reader = new FileReader()
+      reader.onload = (ev) => {
+        addReferenceImage({
+          data: ev.target?.result as string,
+          name: file.name,
+        })
+      }
+      reader.readAsDataURL(file)
+    }
+    // Reset input so the same file can be selected again
+    e.target.value = ''
+  }
+
+  const font = "'Helvetica Neue', Helvetica, Arial, sans-serif"
 
   return (
     <div className="flex flex-col gap-6 max-w-2xl mx-auto w-full">
@@ -38,19 +64,127 @@ export function AssetsInput() {
           style={{ backgroundColor: 'rgba(0,85,255,0.06)', border: '1px solid rgba(0,85,255,0.15)' }}
         >
           <CheckCircle2 size={14} style={{ color: 'var(--primary)', flexShrink: 0 }} />
-          <span style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 13, color: 'var(--primary)', fontWeight: 600 }}>
+          <span style={{ fontFamily: font, fontSize: 13, color: 'var(--primary)', fontWeight: 600 }}>
             {parsedBriefing.produto}
           </span>
           <button
             onClick={() => setStep('briefing')}
-            style={{ marginLeft: 'auto', backgroundColor: 'transparent', border: 'none', color: 'var(--muted-foreground)', fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 12, cursor: 'pointer' }}
+            style={{ marginLeft: 'auto', backgroundColor: 'transparent', border: 'none', color: 'var(--muted-foreground)', fontFamily: font, fontSize: 12, cursor: 'pointer' }}
           >
             Editar briefing
           </button>
         </div>
       )}
 
-      {/* Google Drive link */}
+      {/* ── Reference images for visual style ── */}
+      <div
+        className="p-6 rounded-2xl flex flex-col gap-4"
+        style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}
+      >
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(245,158,11,0.1)' }}>
+            <ImageIcon size={15} style={{ color: '#F59E0B' }} />
+          </div>
+          <div className="flex-1">
+            <span style={{ fontFamily: font, fontSize: 15, fontWeight: 600, color: 'var(--foreground)' }}>
+              Referência visual
+            </span>
+            <p style={{ fontFamily: font, fontSize: 12, color: 'var(--muted-foreground)', marginTop: 1 }}>
+              Suba uma arte de referência para a IA reproduzir o estilo visual (layout, cores, tipografia)
+            </p>
+          </div>
+          <span
+            className="px-2 py-0.5 rounded-full"
+            style={{ backgroundColor: 'rgba(245,158,11,0.1)', color: '#F59E0B', fontFamily: font, fontSize: 10, flexShrink: 0 }}
+          >
+            Opcional
+          </span>
+        </div>
+
+        {/* Uploaded references grid */}
+        {referenceImages.length > 0 && (
+          <div className="grid grid-cols-3 gap-3">
+            {referenceImages.map((img, i) => (
+              <div key={i} className="relative group">
+                <img
+                  src={img.data}
+                  alt={img.name}
+                  className="rounded-xl object-cover w-full"
+                  style={{ height: 140, objectFit: 'cover' }}
+                />
+                <button
+                  onClick={() => removeReferenceImage(i)}
+                  className="absolute -top-2 -right-2 w-5 h-5 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  style={{ backgroundColor: '#EF4444', color: '#fff', border: 'none', cursor: 'pointer' }}
+                >
+                  <X size={11} />
+                </button>
+                <span
+                  className="absolute bottom-1 left-1 right-1 truncate px-1.5 py-0.5 rounded"
+                  style={{ backgroundColor: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 9, fontFamily: font }}
+                >
+                  {img.name}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Upload area */}
+        {referenceImages.length < MAX_REFERENCES && (
+          <button
+            onClick={() => referenceInputRef.current?.click()}
+            className="flex flex-col items-center gap-3 py-8 rounded-xl transition-all"
+            style={{
+              backgroundColor: 'rgba(245,158,11,0.04)',
+              border: '1.5px dashed rgba(245,158,11,0.25)',
+              cursor: 'pointer',
+            }}
+          >
+            <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(245,158,11,0.1)' }}>
+              {referenceImages.length === 0
+                ? <Upload size={18} style={{ color: '#F59E0B' }} />
+                : <Plus size={18} style={{ color: '#F59E0B' }} />
+              }
+            </div>
+            <div className="flex flex-col items-center gap-0.5">
+              <span style={{ fontFamily: font, fontSize: 14, fontWeight: 600, color: '#F59E0B' }}>
+                {referenceImages.length === 0 ? 'Carregar arte de referência' : 'Adicionar outra referência'}
+              </span>
+              <span style={{ fontFamily: font, fontSize: 12, color: 'var(--muted-foreground)' }}>
+                PNG, JPG ou WEBP · Até {MAX_REFERENCES} referências · A IA reproduz o estilo visual
+              </span>
+            </div>
+          </button>
+        )}
+
+        {referenceImages.length > 0 && (
+          <div className="flex items-start gap-2 px-3 py-2 rounded-lg" style={{ backgroundColor: 'rgba(245,158,11,0.06)' }}>
+            <CheckCircle2 size={13} style={{ color: '#F59E0B', flexShrink: 0, marginTop: 2 }} />
+            <span style={{ fontFamily: font, fontSize: 11, color: 'var(--muted-foreground)', lineHeight: 1.4 }}>
+              A IA vai analisar {referenceImages.length === 1 ? 'esta referência' : `estas ${referenceImages.length} referências`} para
+              reproduzir o layout, cores e tipografia nas peças geradas — adaptando fotos e textos conforme o briefing.
+            </span>
+          </div>
+        )}
+
+        {referenceImages.length === 0 && (
+          <span style={{ fontFamily: font, fontSize: 11, color: 'var(--muted-foreground)' }}>
+            Sem referência visual, a IA usará os arquivos do Google Drive (se fornecido) como base de estilo
+          </span>
+        )}
+
+        <input
+          ref={referenceInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          multiple
+          className="hidden"
+          onChange={handleReferenceUpload}
+        />
+      </div>
+
+      {/* ── Google Drive link ── */}
       <div
         className="p-6 rounded-2xl flex flex-col gap-4"
         style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}
@@ -60,10 +194,10 @@ export function AssetsInput() {
             <Link2 size={15} style={{ color: 'var(--primary)' }} />
           </div>
           <div>
-            <span style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 15, fontWeight: 600, color: 'var(--foreground)' }}>
+            <span style={{ fontFamily: font, fontSize: 15, fontWeight: 600, color: 'var(--foreground)' }}>
               Link de assets (Google Drive)
             </span>
-            <p style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 12, color: 'var(--muted-foreground)', marginTop: 1 }}>
+            <p style={{ fontFamily: font, fontSize: 12, color: 'var(--muted-foreground)', marginTop: 1 }}>
               Pasta com fotos, logotipos e materiais do empreendimento
             </p>
           </div>
@@ -80,7 +214,7 @@ export function AssetsInput() {
             border: '1px solid var(--border)',
             color: 'var(--foreground)',
             outline: 'none',
-            fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif",
+            fontFamily: font,
             fontSize: 14,
           }}
         />
@@ -89,7 +223,7 @@ export function AssetsInput() {
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-1.5">
             <FileText size={13} style={{ color: 'var(--muted-foreground)' }} />
-            <span style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 13, fontWeight: 500, color: 'var(--foreground)' }}>
+            <span style={{ fontFamily: font, fontSize: 13, fontWeight: 500, color: 'var(--foreground)' }}>
               Orientações para a IA
             </span>
           </div>
@@ -104,18 +238,18 @@ export function AssetsInput() {
               border: '1px solid var(--border)',
               color: 'var(--foreground)',
               outline: 'none',
-              fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif",
+              fontFamily: font,
               fontSize: 14,
               lineHeight: 1.5,
             }}
           />
-          <span style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 11, color: 'var(--muted-foreground)' }}>
+          <span style={{ fontFamily: font, fontSize: 11, color: 'var(--muted-foreground)' }}>
             A IA vai usar esse texto para selecionar e usar os assets mais adequados da pasta
           </span>
         </div>
       </div>
 
-      {/* Presenter photo */}
+      {/* ── Presenter photo ── */}
       <div
         className="p-6 rounded-2xl flex flex-col gap-4"
         style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}
@@ -125,16 +259,16 @@ export function AssetsInput() {
             <User2 size={15} style={{ color: '#7C3AED' }} />
           </div>
           <div className="flex-1">
-            <span style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 15, fontWeight: 600, color: 'var(--foreground)' }}>
+            <span style={{ fontFamily: font, fontSize: 15, fontWeight: 600, color: 'var(--foreground)' }}>
               Foto da apresentadora
             </span>
-            <p style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 12, color: 'var(--muted-foreground)', marginTop: 1 }}>
+            <p style={{ fontFamily: font, fontSize: 12, color: 'var(--muted-foreground)', marginTop: 1 }}>
               Referência usada nos vídeos com apresentadora — a IA a mantém consistente em todos os vídeos
             </p>
           </div>
           <span
             className="px-2 py-0.5 rounded-full"
-            style={{ backgroundColor: 'rgba(124,58,237,0.1)', color: '#7C3AED', fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 10, flexShrink: 0 }}
+            style={{ backgroundColor: 'rgba(124,58,237,0.1)', color: '#7C3AED', fontFamily: font, fontSize: 10, flexShrink: 0 }}
           >
             Opcional
           </span>
@@ -142,7 +276,6 @@ export function AssetsInput() {
 
         {presenterImage ? (
           <div className="flex items-center gap-4">
-            {/* Preview */}
             <div className="relative flex-shrink-0">
               <img
                 src={presenterImage}
@@ -159,15 +292,15 @@ export function AssetsInput() {
               </button>
             </div>
             <div className="flex flex-col gap-1">
-              <span style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 13, fontWeight: 600, color: 'var(--foreground)' }}>
+              <span style={{ fontFamily: font, fontSize: 13, fontWeight: 600, color: 'var(--foreground)' }}>
                 {presenterImageName ?? 'Foto carregada'}
               </span>
-              <span style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 11, color: '#22C55E' }}>
-                ✓ Será usada em todos os vídeos com apresentadora
+              <span style={{ fontFamily: font, fontSize: 11, color: '#22C55E' }}>
+                Será usada em todos os vídeos com apresentadora
               </span>
               <button
                 onClick={() => presenterInputRef.current?.click()}
-                style={{ alignSelf: 'flex-start', backgroundColor: 'transparent', border: 'none', color: 'var(--primary)', fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 12, cursor: 'pointer', padding: 0 }}
+                style={{ alignSelf: 'flex-start', backgroundColor: 'transparent', border: 'none', color: 'var(--primary)', fontFamily: font, fontSize: 12, cursor: 'pointer', padding: 0 }}
               >
                 Trocar foto
               </button>
@@ -187,10 +320,10 @@ export function AssetsInput() {
               <Upload size={18} style={{ color: '#7C3AED' }} />
             </div>
             <div className="flex flex-col items-center gap-0.5">
-              <span style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 14, fontWeight: 600, color: '#7C3AED' }}>
+              <span style={{ fontFamily: font, fontSize: 14, fontWeight: 600, color: '#7C3AED' }}>
                 Carregar foto da apresentadora
               </span>
-              <span style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 12, color: 'var(--muted-foreground)' }}>
+              <span style={{ fontFamily: font, fontSize: 12, color: 'var(--muted-foreground)' }}>
                 PNG, JPG ou WEBP · Foto de rosto/corpo preferencialmente
               </span>
             </div>
@@ -211,19 +344,18 @@ export function AssetsInput() {
         <button
           onClick={() => setStep('briefing')}
           className="flex items-center gap-2 px-4 py-2.5 rounded-full transition-all active:scale-95"
-          style={{ backgroundColor: 'var(--secondary)', color: 'var(--secondary-foreground)', border: 'none', fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 14, cursor: 'pointer' }}
+          style={{ backgroundColor: 'var(--secondary)', color: 'var(--secondary-foreground)', border: 'none', fontFamily: font, fontSize: 14, cursor: 'pointer' }}
         >
-          ← Voltar
+          Voltar
         </button>
         <button
           onClick={() => setStep('parametros')}
-          disabled={!canContinue}
           className="flex-1 flex items-center justify-center gap-2 py-3 rounded-full transition-all hover:opacity-90 active:scale-95"
           style={{
             background: 'linear-gradient(135deg, var(--primary) 0%, #1C398E 100%)',
             color: '#fff',
             border: 'none',
-            fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif",
+            fontFamily: font,
             fontSize: 15,
             fontWeight: 700,
             cursor: 'pointer',

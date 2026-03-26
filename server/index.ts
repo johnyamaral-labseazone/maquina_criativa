@@ -568,6 +568,87 @@ async function generateWithNanobanana(prompt: string, aspectRatio: string): Prom
   throw lastErr
 }
 
+// ── Analyze reference image style with Gemini ──────────────────────────────────
+async function analyzeReferenceStyle(imageDataUrl: string): Promise<string> {
+  if (!googleAI) return ''
+  try {
+    const base64Match = imageDataUrl.match(/^data:(image\/\w+);base64,(.+)$/)
+    if (!base64Match) return ''
+    const [, mimeType, base64Data] = base64Match
+
+    const response = await googleAI.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: [{
+        role: 'user',
+        parts: [
+          { inlineData: { data: base64Data, mimeType } },
+          { text: `Analise esta peça publicitária/criativo e descreva o estilo visual em inglês para reprodução por IA generativa de imagem. Foque em:
+- Layout e composição (posição dos elementos, hierarquia visual)
+- Paleta de cores (cores dominantes, acentos, gradientes)
+- Tipografia (estilo, peso, tamanho relativo, cores dos textos)
+- Tratamento de imagem de fundo (filtros, overlay, blur, iluminação)
+- Elementos gráficos (bordas, ícones, formas, linhas, badges)
+- Tom visual geral (luxo, moderno, minimalista, bold, etc.)
+
+Responda APENAS com a descrição de estilo em um parágrafo conciso em inglês, sem explicações extras. Exemplo: "Dark luxury style with navy gradient overlay on aerial property photo, white bold sans-serif headline top-left, gold accent CTA button bottom-center, subtle vignette, minimalist layout with generous whitespace"` },
+        ],
+      }],
+    })
+    const text = response.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+    console.log(`[style-analysis] ✅ Extracted: "${text.slice(0, 120)}..."`)
+    return text.trim()
+  } catch (err) {
+    console.warn('[style-analysis] Falhou:', String(err).slice(0, 100))
+    return ''
+  }
+}
+
+// ── Generate image with Nanobanana using reference style ────────────────────
+async function generateWithNanobananaStyled(
+  prompt: string,
+  aspectRatio: string,
+  referenceDataUrl: string,
+  styleDescription: string,
+): Promise<{ base64: string; mimeType: string }> {
+  if (!googleAI) throw new Error('GOOGLE_API_KEY não configurada')
+
+  const base64Match = referenceDataUrl.match(/^data:(image\/\w+);base64,(.+)$/)
+  if (!base64Match) throw new Error('Reference image format invalid')
+  const [, refMimeType, refBase64] = base64Match
+
+  const styledPrompt = `Generate an advertisement creative image following this exact visual style: ${styleDescription}.
+The image content should be: ${prompt}, ${aspectRatioHint(aspectRatio)}.
+IMPORTANT: Reproduce the same layout structure, color palette, typography style, and visual treatment as the reference image, but with new content (different photos, different text content). The final result must look like it belongs to the same campaign as the reference.`
+
+  const models = ['gemini-2.0-flash-exp-image-generation']
+  let lastErr: unknown
+  for (const model of models) {
+    try {
+      const response = await googleAI.models.generateContent({
+        model,
+        contents: [{
+          role: 'user',
+          parts: [
+            { inlineData: { data: refBase64, mimeType: refMimeType } },
+            { text: styledPrompt },
+          ],
+        }],
+        config: { responseModalities: ['IMAGE', 'TEXT'] },
+      })
+      const parts = response.candidates?.[0]?.content?.parts ?? []
+      const imagePart = parts.find(
+        (p: Record<string, unknown>) => p.inlineData,
+      ) as { inlineData: { data: string; mimeType: string } } | undefined
+      if (!imagePart?.inlineData?.data) throw new Error('Sem imagem na resposta')
+      return { base64: imagePart.inlineData.data, mimeType: imagePart.inlineData.mimeType ?? 'image/png' }
+    } catch (err) {
+      console.warn(`[nanobanana-styled] Modelo ${model} falhou:`, String(err).slice(0, 80))
+      lastErr = err
+    }
+  }
+  throw lastErr
+}
+
 // ── Generate image with Nanobanana (Google Gemini) ────────────────────────────
 app.post('/api/ai/generate-imagen', async (req, res) => {
   if (!googleAI) {
@@ -1104,23 +1185,56 @@ function buildTemplateVars(briefing: Record<string, string> | null, copy: Record
   }
 }
 
+// Cache analyzed styles to avoid re-analyzing the same reference for every creative
+const styleCache = new Map<string, string>()
+
 app.post('/api/campanha/generate-creative', async (req, res) => {
   try {
-    const { copy, formato, briefing } = req.body
-    const bgPrompt = `Seazone real estate Brazil, ${copy?.headline || ''}, luxury coastal property aerial drone view, natural sunlight, turquoise ocean, no people, no text, no watermarks`
+    const { copy, formato, briefing, referenceImages, assetsContext } = req.body
+    const refs: string[] = Array.isArray(referenceImages) ? referenceImages : []
+    const hasRef = refs.length > 0
 
-    console.log(`[creative] Gerando — formato: ${formato}, headline: "${copy?.headline?.slice(0,30)}"`)
+    const contextHint = assetsContext ? `, ${assetsContext}` : ''
+    const bgPrompt = `Seazone real estate Brazil, ${copy?.headline || ''}, luxury coastal property aerial drone view, natural sunlight, turquoise ocean${contextHint}, no people, no text overlay, no watermarks`
 
-    // 1. Generate background (with 120s total timeout safety net)
-    const bgDataUrl = await Promise.race([
-      generateBackground(bgPrompt, formato ?? '4:5'),
-      new Promise<string>((_, reject) => setTimeout(() => reject(new Error('Background timeout 120s')), 120000)),
-    ]).catch((err) => {
-      console.warn('[creative] Background falhou, usando gradiente:', String(err).slice(0, 80))
-      return '' // empty = template shows gradient-only background
-    })
+    console.log(`[creative] Gerando — formato: ${formato}, refs: ${refs.length}, headline: "${copy?.headline?.slice(0,30)}"`)
 
-    // 2. Render template
+    let bgDataUrl = ''
+
+    if (hasRef && googleAI) {
+      // ── Reference-based generation: analyze style + generate styled image ──
+      const refKey = refs[0].slice(0, 60) // cache key from first reference
+      let styleDesc = styleCache.get(refKey)
+      if (!styleDesc) {
+        styleDesc = await analyzeReferenceStyle(refs[0])
+        if (styleDesc) styleCache.set(refKey, styleDesc)
+      }
+
+      if (styleDesc) {
+        try {
+          const { base64, mimeType } = await generateWithNanobananaStyled(
+            bgPrompt, formato ?? '4:5', refs[0], styleDesc,
+          )
+          bgDataUrl = `data:${mimeType};base64,${base64}`
+          console.log('[creative] ✅ Styled generation with reference OK')
+        } catch (err) {
+          console.warn('[creative] Styled gen failed, falling back to standard:', String(err).slice(0, 80))
+        }
+      }
+    }
+
+    // Fallback to standard generation if reference-based failed or no ref
+    if (!bgDataUrl) {
+      bgDataUrl = await Promise.race([
+        generateBackground(bgPrompt, formato ?? '4:5'),
+        new Promise<string>((_, reject) => setTimeout(() => reject(new Error('Background timeout 120s')), 120000)),
+      ]).catch((err) => {
+        console.warn('[creative] Background falhou, usando gradiente:', String(err).slice(0, 80))
+        return ''
+      })
+    }
+
+    // 2. Render template with headline, CTA, briefing data etc.
     const vars = buildTemplateVars(briefing, copy, bgDataUrl)
     let imageDataUrl: string
     if (formato === '9:16') {
@@ -1129,8 +1243,8 @@ app.post('/api/campanha/generate-creative', async (req, res) => {
       imageDataUrl = await renderHtmlToImage(fillTemplate('creative-feed.html', vars), 1080, 1350)
     }
 
-    console.log(`[creative] ✅ formato: ${formato}`)
-    res.json({ imageDataUrl, generator: bgDataUrl ? 'template+ai' : 'template+gradient' })
+    console.log(`[creative] ✅ formato: ${formato}, generator: ${bgDataUrl ? (hasRef ? 'template+styled-ai' : 'template+ai') : 'template+gradient'}`)
+    res.json({ imageDataUrl, generator: bgDataUrl ? (hasRef ? 'template+styled-ai' : 'template+ai') : 'template+gradient' })
   } catch (err) {
     console.error('[generate-creative]', err)
     res.status(500).json({ error: String(err) })

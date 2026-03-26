@@ -20,7 +20,7 @@ export function CreativeCanvas({
   briefing,
   formato,
   safeZone,
-  selectedEstrutura,
+  selectedEstrutura: _selectedEstrutura,
   selectedVariacao,
   onEditHeadline,
   onEditTexto,
