@@ -7,6 +7,12 @@
       "runtimeArgs": ["run", "dev:full"],
       "port": 5173,
       "autoPort": true
+    },
+    {
+      "name": "creative-api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:ai"],
+      "port": 3001
     }
   ]
 }
