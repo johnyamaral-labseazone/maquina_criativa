@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1080px;
+    height: 1350px;
+    font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    overflow: hidden;
+    position: relative;
+    background: #0A1628;
+  }
+
+  .bg-photo {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 65%;
+    object-fit: cover;
+    z-index: 1;
+  }
+
+  .gradient-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+    background:
+      linear-gradient(180deg,
+        rgba(10, 22, 40, 0.15) 0%,
+        rgba(10, 22, 40, 0.3) 30%,
+        rgba(10, 22, 40, 0.85) 55%,
+        rgba(10, 22, 40, 0.97) 65%,
+        #0A1628 72%
+      );
+  }
+
+  .content {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* LANÇAMENTO ribbon */
+  .ribbon {
+    position: absolute;
+    top: 42px;
+    left: -48px;
+    width: 260px;
+    text-align: center;
+    transform: rotate(-45deg);
+    background: linear-gradient(135deg, #FF4D6A 0%, #E8364E 100%);
+    color: #fff;
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: 4px;
+    padding: 14px 0;
+    text-transform: uppercase;
+    box-shadow: 0 4px 20px rgba(232, 54, 78, 0.4);
+    z-index: 10;
+  }
+
+  /* Logo badge */
+  .logo-badge {
+    position: absolute;
+    top: 45%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 5;
+    background: rgba(255,255,255,0.95);
+    border-radius: 20px;
+    padding: 18px 32px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .logo-badge .proj-name-top {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 5px;
+    color: #333;
+    text-transform: uppercase;
+  }
+
+  .logo-badge .proj-name-big {
+    font-size: 42px;
+    font-weight: 900;
+    color: #E8364E;
+    line-height: 1;
+  }
+
+  /* Location pin */
+  .location-row {
+    position: absolute;
+    top: 35px;
+    right: 35px;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255,255,255,0.93);
+    border-radius: 28px;
+    padding: 10px 22px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  }
+
+  .location-pin {
+    width: 22px;
+    height: 22px;
+    background: #FF4D6A;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .location-pin::after {
+    content: '';
+    width: 8px;
+    height: 8px;
+    background: #fff;
+    border-radius: 50%;
+  }
+
+  .location-text {
+    font-size: 17px;
+    font-weight: 700;
+    color: #1a1a1a;
+  }
+
+  /* Bottom section */
+  .bottom-section {
+    margin-top: auto;
+    padding: 0 60px 50px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+  }
+
+  /* Value boxes */
+  .value-boxes {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+  }
+
+  .value-box {
+    border: 1.5px solid rgba(160, 200, 80, 0.5);
+    border-radius: 16px;
+    padding: 14px 28px;
+    text-align: center;
+    flex: 1;
+    max-width: 420px;
+    background: rgba(160, 200, 80, 0.06);
+  }
+
+  .value-box .label {
+    font-size: 16px;
+    color: rgba(255,255,255,0.7);
+    font-weight: 400;
+  }
+
+  .value-box .amount {
+    font-size: 22px;
+    font-weight: 800;
+    color: #fff;
+  }
+
+  /* Headline */
+  .headline {
+    text-align: center;
+    font-size: 46px;
+    line-height: 1.2;
+    color: #fff;
+  }
+
+  .headline .highlight {
+    font-weight: 800;
+    color: #fff;
+  }
+
+  .headline .normal {
+    font-weight: 400;
+    color: rgba(255,255,255,0.85);
+  }
+
+  /* Audience badge */
+  .audience-badge {
+    align-self: center;
+    border: 1.5px solid rgba(160, 200, 80, 0.4);
+    border-radius: 30px;
+    padding: 14px 36px;
+    text-align: center;
+  }
+
+  .audience-badge .text {
+    font-size: 18px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.85);
+  }
+
+  .audience-badge .bold {
+    font-weight: 800;
+    color: #fff;
+  }
+
+  /* Gestão line */
+  .gestao-line {
+    text-align: center;
+    font-size: 20px;
+    color: rgba(255,255,255,0.7);
+  }
+
+  .gestao-line .bold {
+    font-weight: 700;
+    color: rgba(255,255,255,0.9);
+  }
+
+  /* Divider */
+  .divider {
+    height: 1.5px;
+    background: linear-gradient(90deg, transparent, rgba(0,85,255,0.3), rgba(94,165,0,0.3), transparent);
+    width: 85%;
+    align-self: center;
+  }
+
+  /* Footer logos */
+  .footer-logos {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 40px;
+    padding: 10px 0;
+  }
+
+  .footer-logo-text {
+    font-size: 28px;
+    font-weight: 800;
+    color: rgba(255,255,255,0.85);
+    letter-spacing: 1px;
+  }
+
+  .footer-separator {
+    width: 1.5px;
+    height: 40px;
+    background: rgba(255,255,255,0.2);
+  }
+
+  .footer-investimentos {
+    font-size: 22px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.7);
+    font-style: italic;
+  }
+
+  /* CTA */
+  .cta-text {
+    text-align: center;
+    font-size: 16px;
+    color: rgba(160, 200, 80, 0.8);
+    font-weight: 500;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  /* Disclaimer */
+  .disclaimer {
+    font-size: 10px;
+    line-height: 1.4;
+    color: rgba(255,255,255,0.3);
+    text-align: justify;
+    padding: 0 20px;
+  }
+</style>
+</head>
+<body>
+  <!-- Background photo -->
+  <img class="bg-photo" src="{{BACKGROUND_IMAGE}}" alt="property" />
+  <div class="gradient-overlay"></div>
+
+  <div class="content">
+    <!-- Ribbon -->
+    <div class="ribbon">LANÇAMENTO</div>
+
+    <!-- Location -->
+    <div class="location-row">
+      <div class="location-pin"></div>
+      <span class="location-text">{{LOCATION}}</span>
+    </div>
+
+    <!-- Logo badge -->
+    <div class="logo-badge">
+      <span class="proj-name-top">{{PROJECT_NAME_TOP}}</span>
+      <span class="proj-name-big">{{PROJECT_NAME_BIG}}</span>
+    </div>
+
+    <!-- Bottom content -->
+    <div class="bottom-section">
+      <!-- Value boxes -->
+      <div class="value-boxes">
+        <div class="value-box">
+          <span class="label">Invista a partir de</span>
+          <span class="amount">{{INVESTIMENTO}}</span>
+        </div>
+        <div class="value-box">
+          <span class="label">Projeção de</span>
+          <span class="amount">{{RENDA_MENSAL}} <span class="label">por mês</span></span>
+        </div>
+      </div>
+
+      <!-- Headline -->
+      <div class="headline">
+        <span class="highlight">{{HEADLINE_BOLD}}</span> <span class="normal">{{HEADLINE_NORMAL}}</span>
+      </div>
+
+      <!-- Audience -->
+      <div class="audience-badge">
+        <span class="text">{{AUDIENCE_TEXT}}</span>
+      </div>
+
+      <!-- Gestão -->
+      <div class="gestao-line">
+        Gestão <span class="bold">operacional e estratégica completa</span> Seazone
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Footer -->
+      <div class="footer-logos">
+        <span class="footer-logo-text">{{PROJECT_NAME_SHORT}}</span>
+        <div class="footer-separator"></div>
+        <span class="footer-logo-text" style="color: rgba(255,255,255,0.6)">sea<span style="color: #E8364E">z</span>one</span>
+        <div class="footer-separator"></div>
+        <span class="footer-investimentos">Investimentos</span>
+      </div>
+
+      <!-- CTA -->
+      <div class="cta-text">{{CTA}}</div>
+
+      <!-- Disclaimer -->
+      <div class="disclaimer">
+        *Este material tem caráter exclusivamente informativo e não constitui uma promessa de rentabilidade futura ou garantia de retorno financeiro. Os resultados financeiros do investimento dependem da performance do empreendimento após sua conclusão, especialmente a futura valorização patrimonial do imóvel e da renda gerada por sua eventual locação. A Seazone não oferece garantia de rendimento fixo, retorno mínimo ou qualquer tipo de remuneração automática sobre o capital investido.
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1080px;
+    height: 1080px;
+    font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    overflow: hidden;
+    position: relative;
+    background: #0A1628;
+  }
+
+  .bg-photo {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 55%;
+    object-fit: cover;
+    z-index: 1;
+  }
+
+  .gradient-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+    background:
+      linear-gradient(180deg,
+        rgba(10, 22, 40, 0.15) 0%,
+        rgba(10, 22, 40, 0.5) 40%,
+        rgba(10, 22, 40, 0.95) 55%,
+        #0A1628 62%
+      );
+  }
+
+  .content {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Slide indicator */
+  .slide-indicator {
+    position: absolute;
+    top: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 6px;
+    z-index: 10;
+  }
+
+  .slide-dot {
+    width: 50px;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.25);
+  }
+
+  .slide-dot.active {
+    background: #fff;
+  }
+
+  /* Ribbon */
+  .ribbon {
+    position: absolute;
+    top: 38px;
+    left: -48px;
+    width: 240px;
+    text-align: center;
+    transform: rotate(-45deg);
+    background: linear-gradient(135deg, #FF4D6A 0%, #E8364E 100%);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 3px;
+    padding: 12px 0;
+    text-transform: uppercase;
+    box-shadow: 0 4px 20px rgba(232, 54, 78, 0.4);
+    z-index: 10;
+  }
+
+  /* Bottom content */
+  .bottom-section {
+    margin-top: auto;
+    padding: 0 50px 45px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+
+  /* Slide number */
+  .slide-number {
+    font-size: 13px;
+    font-weight: 700;
+    color: rgba(160, 200, 80, 0.7);
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    text-align: center;
+  }
+
+  /* Headline */
+  .headline {
+    text-align: center;
+    font-size: 42px;
+    line-height: 1.2;
+    color: #fff;
+  }
+
+  .headline .highlight {
+    font-weight: 800;
+  }
+
+  .headline .normal {
+    font-weight: 400;
+    color: rgba(255,255,255,0.85);
+  }
+
+  /* Body text */
+  .body-text {
+    text-align: center;
+    font-size: 20px;
+    line-height: 1.5;
+    color: rgba(255,255,255,0.7);
+    padding: 0 20px;
+  }
+
+  .divider {
+    height: 1.5px;
+    background: linear-gradient(90deg, transparent, rgba(0,85,255,0.3), rgba(94,165,0,0.3), transparent);
+    width: 70%;
+    align-self: center;
+  }
+
+  /* Footer */
+  .footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 30px;
+  }
+
+  .footer-logo {
+    font-size: 22px;
+    font-weight: 800;
+    color: rgba(255,255,255,0.7);
+  }
+
+  .footer-sep {
+    width: 1px;
+    height: 30px;
+    background: rgba(255,255,255,0.15);
+  }
+
+  /* Swipe indicator */
+  .swipe-hint {
+    text-align: center;
+    font-size: 13px;
+    color: rgba(255,255,255,0.35);
+    letter-spacing: 1px;
+  }
+
+  .swipe-hint .arrow {
+    font-size: 16px;
+    margin-left: 4px;
+  }
+</style>
+</head>
+<body>
+  <img class="bg-photo" src="{{BACKGROUND_IMAGE}}" alt="property" />
+  <div class="gradient-overlay"></div>
+
+  <div class="content">
+    <!-- Slide indicator dots -->
+    <div class="slide-indicator">
+      {{SLIDE_DOTS}}
+    </div>
+
+    <div class="ribbon">{{RIBBON_TEXT}}</div>
+
+    <div class="bottom-section">
+      <div class="slide-number">{{SLIDE_LABEL}}</div>
+
+      <div class="headline">
+        <span class="highlight">{{HEADLINE_BOLD}}</span> <span class="normal">{{HEADLINE_NORMAL}}</span>
+      </div>
+
+      <div class="body-text">{{BODY_TEXT}}</div>
+
+      <div class="divider"></div>
+
+      <div class="footer">
+        <span class="footer-logo">{{PROJECT_NAME_SHORT}}</span>
+        <div class="footer-sep"></div>
+        <span class="footer-logo" style="color: rgba(255,255,255,0.5)">sea<span style="color: #E8364E">z</span>one</span>
+        <div class="footer-sep"></div>
+        <span class="footer-logo" style="font-weight: 600; font-style: italic; color: rgba(255,255,255,0.5);">Investimentos</span>
+      </div>
+
+      <div class="swipe-hint">Arraste para ver mais <span class="arrow">→</span></div>
+    </div>
+  </div>
+</body>
+</html>
