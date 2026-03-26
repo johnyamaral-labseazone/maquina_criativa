@@ -33,11 +33,12 @@ function sanitizeKey(raw: string | undefined): string | undefined {
   return key || undefined
 }
 
-const ANTHROPIC_KEY  = sanitizeKey(process.env.ANTHROPIC_API_KEY)
-const REPLICATE_KEY  = sanitizeKey(process.env.REPLICATE_API_TOKEN)
-const GOOGLE_KEY     = sanitizeKey(process.env.GOOGLE_API_KEY)
-const FREEPIK_KEY    = sanitizeKey(process.env.FREEPIK_API_KEY)
-const FAL_KEY        = sanitizeKey(process.env.FAL_KEY)
+const ANTHROPIC_KEY    = sanitizeKey(process.env.ANTHROPIC_API_KEY)
+const REPLICATE_KEY    = sanitizeKey(process.env.REPLICATE_API_TOKEN)
+const GOOGLE_KEY       = sanitizeKey(process.env.GOOGLE_API_KEY)
+const FREEPIK_KEY      = sanitizeKey(process.env.FREEPIK_API_KEY)
+const FAL_KEY          = sanitizeKey(process.env.FAL_KEY)
+const ELEVENLABS_KEY   = sanitizeKey(process.env.ELEVENLABS_API_KEY)
 
 const anthropic  = ANTHROPIC_KEY ? new Anthropic({ apiKey: ANTHROPIC_KEY })  : null
 const replicate  = REPLICATE_KEY ? new Replicate({ auth: REPLICATE_KEY })    : null
@@ -316,6 +317,67 @@ async function generateWithFalKlingImg2Vid(
   return `/temp/videos/${filename}`
 }
 
+// ── ElevenLabs helpers ────────────────────────────────────────────────────────
+const ELEVENLABS_BASE = 'https://api.elevenlabs.io/v1'
+
+// Default voice: "Rachel" (pt-BR friendly, professional female)
+// Other options: 'pNInz6obpgDQGcFmaJgB' (Adam), '21m00Tcm4TlvDq8ikWAM' (Rachel)
+const ELEVENLABS_DEFAULT_VOICE = '21m00Tcm4TlvDq8ikWAM'
+
+// Generate speech with ElevenLabs — returns audio file saved locally
+async function generateWithElevenLabs(
+  text: string,
+  voiceId: string = ELEVENLABS_DEFAULT_VOICE,
+  modelId: string = 'eleven_multilingual_v2',
+): Promise<string> {
+  if (!ELEVENLABS_KEY) throw new Error('ELEVENLABS_API_KEY não configurada')
+
+  const r = await fetch(`${ELEVENLABS_BASE}/text-to-speech/${voiceId}`, {
+    method: 'POST',
+    headers: {
+      'xi-api-key': ELEVENLABS_KEY,
+      'Content-Type': 'application/json',
+      'Accept': 'audio/mpeg',
+    },
+    body: JSON.stringify({
+      text,
+      model_id: modelId,
+      voice_settings: {
+        stability: 0.5,
+        similarity_boost: 0.75,
+        style: 0.3,
+        use_speaker_boost: true,
+      },
+    }),
+    signal: AbortSignal.timeout(30000),
+  })
+
+  if (!r.ok) {
+    const errText = await r.text()
+    throw new Error(`ElevenLabs TTS ${r.status}: ${errText}`)
+  }
+
+  const buffer   = await r.arrayBuffer()
+  const filename = `elevenlabs_${Date.now()}.mp3`
+  const filepath = path.join(TEMP_VIDEO_DIR, filename)
+  fs.writeFileSync(filepath, Buffer.from(buffer))
+
+  return `/temp/videos/${filename}`
+}
+
+// List available ElevenLabs voices
+async function listElevenLabsVoices(): Promise<Array<{ voice_id: string; name: string; labels: Record<string, string> }>> {
+  if (!ELEVENLABS_KEY) throw new Error('ELEVENLABS_API_KEY não configurada')
+
+  const r = await fetch(`${ELEVENLABS_BASE}/voices`, {
+    headers: { 'xi-api-key': ELEVENLABS_KEY },
+    signal: AbortSignal.timeout(10000),
+  })
+  if (!r.ok) throw new Error(`ElevenLabs voices ${r.status}`)
+  const data = await r.json() as { voices: Array<{ voice_id: string; name: string; labels: Record<string, string> }> }
+  return data.voices ?? []
+}
+
 const app = express()
 app.use(cors())
 app.use(express.json({ limit: '50mb' }))  // increased for presenter image base64
@@ -326,14 +388,57 @@ app.use('/temp', express.static(path.join(process.cwd(), 'temp')))
 // ── Status ───────────────────────────────────────────────────────────────────
 app.get('/api/ai/status', (_req, res) => {
   res.json({
-    vision:     !!anthropic || !!googleAI,
-    generation: !!FAL_KEY || !!FREEPIK_KEY || !!replicate || !!googleAI,
-    imagen:     !!FAL_KEY || !!FREEPIK_KEY || !!googleAI,
-    video:      !!FAL_KEY || !!FREEPIK_KEY || !!googleAI,
-    freepik:    !!FREEPIK_KEY,
-    fal:        !!FAL_KEY,
-    ready:      !!googleAI || !!FAL_KEY || !!FREEPIK_KEY,
+    vision:      !!anthropic || !!googleAI,
+    generation:  !!FAL_KEY || !!FREEPIK_KEY || !!replicate || !!googleAI,
+    imagen:      !!FAL_KEY || !!FREEPIK_KEY || !!googleAI,
+    video:       !!FAL_KEY || !!FREEPIK_KEY || !!googleAI,
+    freepik:     !!FREEPIK_KEY,
+    fal:         !!FAL_KEY,
+    elevenlabs:  !!ELEVENLABS_KEY,
+    ready:       !!googleAI || !!FAL_KEY || !!FREEPIK_KEY,
   })
+})
+
+// ── ElevenLabs: generate speech (locução) ────────────────────────────────────
+app.post('/api/ai/tts', async (req, res) => {
+  if (!ELEVENLABS_KEY) {
+    res.status(503).json({ error: 'ELEVENLABS_API_KEY não configurada no .env' })
+    return
+  }
+  try {
+    const {
+      text,
+      voiceId = ELEVENLABS_DEFAULT_VOICE,
+      modelId = 'eleven_multilingual_v2',
+    } = req.body
+
+    if (!text || typeof text !== 'string' || text.trim().length === 0) {
+      res.status(400).json({ error: 'Campo "text" é obrigatório' })
+      return
+    }
+
+    console.log(`[tts] Gerando locução — ${text.slice(0, 60)}...`)
+    const audioUrl = await generateWithElevenLabs(text.trim(), voiceId, modelId)
+    res.json({ audioUrl, filename: path.basename(audioUrl), generator: 'elevenlabs' })
+  } catch (err) {
+    console.error('[tts]', err)
+    res.status(500).json({ error: String(err) })
+  }
+})
+
+// ── ElevenLabs: list available voices ────────────────────────────────────────
+app.get('/api/ai/tts/voices', async (_req, res) => {
+  if (!ELEVENLABS_KEY) {
+    res.status(503).json({ error: 'ELEVENLABS_API_KEY não configurada no .env' })
+    return
+  }
+  try {
+    const voices = await listElevenLabsVoices()
+    res.json({ voices })
+  } catch (err) {
+    console.error('[tts/voices]', err)
+    res.status(500).json({ error: String(err) })
+  }
 })
 
 // ── Analyze reference image with Claude ──────────────────────────────────────
