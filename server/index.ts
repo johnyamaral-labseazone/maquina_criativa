@@ -3,6 +3,7 @@ import cors from 'cors'
 import Anthropic from '@anthropic-ai/sdk'
 import Replicate from 'replicate'
 import { GoogleGenAI } from '@google/genai'
+import * as fal from '@fal-ai/client'
 import * as dotenv from 'dotenv'
 import path from 'path'
 import fs from 'fs'
@@ -36,10 +37,17 @@ const ANTHROPIC_KEY  = sanitizeKey(process.env.ANTHROPIC_API_KEY)
 const REPLICATE_KEY  = sanitizeKey(process.env.REPLICATE_API_TOKEN)
 const GOOGLE_KEY     = sanitizeKey(process.env.GOOGLE_API_KEY)
 const FREEPIK_KEY    = sanitizeKey(process.env.FREEPIK_API_KEY)
+const FAL_KEY        = sanitizeKey(process.env.FAL_KEY)
 
 const anthropic  = ANTHROPIC_KEY ? new Anthropic({ apiKey: ANTHROPIC_KEY })  : null
 const replicate  = REPLICATE_KEY ? new Replicate({ auth: REPLICATE_KEY })    : null
 const googleAI   = GOOGLE_KEY    ? new GoogleGenAI({ apiKey: GOOGLE_KEY })   : null
+
+// Configure FAL.AI client
+if (FAL_KEY) {
+  fal.config({ credentials: FAL_KEY })
+  console.log('✅ FAL.AI configurado')
+}
 
 // ── Freepik helpers ───────────────────────────────────────────────────────────
 const FREEPIK_BASE = 'https://api.freepik.com/v1'
@@ -190,6 +198,124 @@ async function generateWithKlingImg2Vid(prompt: string, imageDataUrl: string, du
   throw new Error('Kling img2vid polling timeout')
 }
 
+// ── FAL.AI helpers ────────────────────────────────────────────────────────────
+
+// Map aspect ratios to FAL.AI image_size parameter
+function falImageSize(formato: string): string | { width: number; height: number } {
+  const map: Record<string, string | { width: number; height: number }> = {
+    '1:1':  'square_hd',
+    '4:5':  { width: 864, height: 1080 },
+    '9:16': { width: 576, height: 1024 },
+    '16:9': 'landscape_16_9',
+    '3:4':  'portrait_4_3',
+  }
+  return map[formato] ?? 'square_hd'
+}
+
+// Generate image with FAL.AI FLUX — returns base64 data URL
+// model: 'fal-ai/flux/schnell' | 'fal-ai/flux/dev' | 'fal-ai/flux-pro'
+async function generateWithFalFlux(
+  prompt: string,
+  formato: string,
+  model: string = 'fal-ai/flux/schnell',
+): Promise<string> {
+  if (!FAL_KEY) throw new Error('FAL_KEY não configurada')
+
+  const result = await fal.subscribe(model, {
+    input: {
+      prompt,
+      image_size: falImageSize(formato),
+      num_images: 1,
+      output_format: 'jpeg',
+      num_inference_steps: model.includes('schnell') ? 4 : 28,
+    },
+  }) as { data: { images: Array<{ url: string }> } }
+
+  const imageUrl = result.data?.images?.[0]?.url
+  if (!imageUrl) throw new Error('FAL.AI FLUX não retornou imagem')
+
+  const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(30000) })
+  const buf = await imgRes.arrayBuffer()
+  return `data:image/jpeg;base64,${Buffer.from(buf).toString('base64')}`
+}
+
+// Generate text-to-video with FAL.AI Kling — returns video URL saved locally
+// model: 'fal-ai/kling-video/v2.1/standard/text-to-video' | 'fal-ai/kling-video/v1.6/standard/text-to-video'
+async function generateWithFalKling(
+  prompt: string,
+  durationSeconds: number,
+  model: string = 'fal-ai/kling-video/v2.1/standard/text-to-video',
+): Promise<string> {
+  if (!FAL_KEY) throw new Error('FAL_KEY não configurada')
+
+  const duration = durationSeconds <= 5 ? '5' : '10'
+
+  const result = await fal.subscribe(model, {
+    input: {
+      prompt,
+      duration,
+      aspect_ratio: '9:16',
+      negative_prompt: 'people, text, watermarks, low quality, blurry',
+    },
+  }) as { data: { video: { url: string } } }
+
+  const videoUrl = result.data?.video?.url
+  if (!videoUrl) throw new Error('FAL.AI Kling não retornou vídeo')
+
+  // Download and save video locally
+  const dlRes = await fetch(videoUrl, { signal: AbortSignal.timeout(60000) })
+  if (!dlRes.ok) throw new Error(`Falha ao baixar vídeo FAL.AI: ${dlRes.status}`)
+
+  const buffer   = await dlRes.arrayBuffer()
+  const filename = `fal_kling_${Date.now()}.mp4`
+  const filepath = path.join(TEMP_VIDEO_DIR, filename)
+  fs.writeFileSync(filepath, Buffer.from(buffer))
+
+  return `/temp/videos/${filename}`
+}
+
+// Generate image-to-video with FAL.AI Kling — presenter video
+async function generateWithFalKlingImg2Vid(
+  prompt: string,
+  imageDataUrl: string,
+  durationSeconds: number,
+): Promise<string> {
+  if (!FAL_KEY) throw new Error('FAL_KEY não configurada')
+
+  const duration = durationSeconds <= 5 ? '5' : '10'
+
+  // Upload base64 image to FAL storage to get a URL
+  const base64Data = imageDataUrl.replace(/^data:image\/[a-z+]+;base64,/, '')
+  const mimeType   = imageDataUrl.match(/^data:(image\/[a-z+]+);base64,/)?.[1] ?? 'image/jpeg'
+  const buffer     = Buffer.from(base64Data, 'base64')
+  const blob       = new Blob([buffer], { type: mimeType })
+  const imageUrl   = await fal.storage.upload(blob as unknown as File)
+
+  const result = await fal.subscribe('fal-ai/kling-video/v2.1/standard/image-to-video', {
+    input: {
+      prompt: `${prompt}, professional presenter speaking confidently to camera, natural lighting, cinematic quality`,
+      image_url: imageUrl,
+      duration,
+      aspect_ratio: '9:16',
+      negative_prompt: 'bad quality, blurry, distorted face, watermarks',
+    },
+  }) as { data: { video: { url: string } } }
+
+  const videoUrl = result.data?.video?.url
+  if (!videoUrl) throw new Error('FAL.AI Kling img2vid não retornou vídeo')
+
+  // Download and save video locally
+  const dlRes = await fetch(videoUrl, { signal: AbortSignal.timeout(60000) })
+  if (!dlRes.ok) throw new Error(`Falha ao baixar vídeo FAL.AI img2vid: ${dlRes.status}`)
+
+  const buf      = await dlRes.arrayBuffer()
+  const filename = `fal_kling_img2vid_${Date.now()}.mp4`
+  const filepath = path.join(TEMP_VIDEO_DIR, filename)
+  fs.writeFileSync(filepath, Buffer.from(buf))
+
+  return `/temp/videos/${filename}`
+}
+
 const app = express()
 app.use(cors())
 app.use(express.json({ limit: '50mb' }))  // increased for presenter image base64
@@ -201,11 +327,12 @@ app.use('/temp', express.static(path.join(process.cwd(), 'temp')))
 app.get('/api/ai/status', (_req, res) => {
   res.json({
     vision:     !!anthropic || !!googleAI,
-    generation: !!FREEPIK_KEY || !!replicate || !!googleAI,
-    imagen:     !!FREEPIK_KEY || !!googleAI,
-    video:      !!FREEPIK_KEY || !!googleAI,
+    generation: !!FAL_KEY || !!FREEPIK_KEY || !!replicate || !!googleAI,
+    imagen:     !!FAL_KEY || !!FREEPIK_KEY || !!googleAI,
+    video:      !!FAL_KEY || !!FREEPIK_KEY || !!googleAI,
     freepik:    !!FREEPIK_KEY,
-    ready:      !!googleAI || !!FREEPIK_KEY,
+    fal:        !!FAL_KEY,
+    ready:      !!googleAI || !!FAL_KEY || !!FREEPIK_KEY,
   })
 })
 
@@ -350,15 +477,31 @@ app.post('/api/ai/generate-imagen', async (req, res) => {
   }
 })
 
-// ── Generate image with Flux ──────────────────────────────────────────────────
+// ── Generate image with Flux (Replicate) ─────────────────────────────────────
 app.post('/api/ai/generate', async (req, res) => {
-  if (!replicate) {
-    res.status(503).json({ error: 'REPLICATE_API_TOKEN não configurado no .env' })
+  if (!replicate && !FAL_KEY) {
+    res.status(503).json({ error: 'REPLICATE_API_TOKEN ou FAL_KEY não configurado no .env' })
     return
   }
   try {
     const { prompt, aspectRatio = '1:1' } = req.body
     const fullPrompt = `${prompt}, high quality real estate photography, professional lighting, architectural photography, no people, no text, no watermarks, no UI elements`
+
+    // Try FAL.AI Flux first if available
+    if (FAL_KEY) {
+      try {
+        const imageDataUrl = await generateWithFalFlux(fullPrompt, aspectRatio)
+        res.json({ imageDataUrl, generator: 'fal-flux-schnell' })
+        return
+      } catch (err) {
+        console.warn('[generate] FAL.AI falhou, tentando Replicate...', String(err).slice(0, 80))
+      }
+    }
+
+    if (!replicate) {
+      res.status(503).json({ error: 'Nenhum gerador de imagem disponível' })
+      return
+    }
 
     const output = await replicate.run('black-forest-labs/flux-schnell', {
       input: {
@@ -371,9 +514,63 @@ app.post('/api/ai/generate', async (req, res) => {
     })
 
     const base64 = await replicateOutputToBase64(output)
-    res.json({ imageDataUrl: `data:image/jpeg;base64,${base64}` })
+    res.json({ imageDataUrl: `data:image/jpeg;base64,${base64}`, generator: 'replicate-flux' })
   } catch (err) {
     console.error('[generate]', err)
+    res.status(500).json({ error: String(err) })
+  }
+})
+
+// ── Generate image with FAL.AI (dedicated endpoint) ──────────────────────────
+// Supports multiple FLUX model variants
+app.post('/api/ai/generate-fal', async (req, res) => {
+  if (!FAL_KEY) {
+    res.status(503).json({ error: 'FAL_KEY não configurada no .env' })
+    return
+  }
+  try {
+    const { prompt, aspectRatio = '1:1', model = 'fal-ai/flux/schnell' } = req.body
+    const fullPrompt = `${prompt}, high quality real estate photography, professional lighting, architectural photography, no people, no text, no watermarks`
+    const imageDataUrl = await generateWithFalFlux(fullPrompt, aspectRatio, model)
+    res.json({ imageDataUrl, generator: model })
+  } catch (err) {
+    console.error('[generate-fal]', err)
+    res.status(500).json({ error: String(err) })
+  }
+})
+
+// ── Generate video with FAL.AI (dedicated endpoint) ──────────────────────────
+// Supports Kling v2.1 text-to-video and image-to-video
+app.post('/api/ai/generate-video-fal', async (req, res) => {
+  if (!FAL_KEY) {
+    res.status(503).json({ error: 'FAL_KEY não configurada no .env' })
+    return
+  }
+  try {
+    const {
+      prompt,
+      durationSeconds = 5,
+      tipo = 'narrado',
+      presenterImage,
+      model = 'fal-ai/kling-video/v2.1/standard/text-to-video',
+    } = req.body
+
+    if (tipo === 'apresentadora' && presenterImage) {
+      console.log('[fal-kling-img2vid] Gerando vídeo apresentadora...')
+      const videoUrl = await generateWithFalKlingImg2Vid(prompt, presenterImage, durationSeconds)
+      res.json({ videoUrl, filename: path.basename(videoUrl), generator: 'fal-kling-img2vid' })
+      return
+    }
+
+    const basePrompt = tipo === 'apresentadora'
+      ? `${prompt}, professional presenter speaking to camera, coastal property backdrop, cinematic`
+      : `${prompt}, professional real estate cinematic footage, coastal property, natural lighting, luxury architecture, no people, no text`
+
+    console.log(`[fal-kling] Gerando vídeo tipo=${tipo}, modelo=${model}`)
+    const videoUrl = await generateWithFalKling(basePrompt, durationSeconds, model)
+    res.json({ videoUrl, filename: path.basename(videoUrl), generator: model })
+  } catch (err) {
+    console.error('[generate-video-fal]', err)
     res.status(500).json({ error: String(err) })
   }
 })
@@ -703,8 +900,8 @@ app.post('/api/campanha/render-creative', async (req, res) => {
 })
 
 // ── Generate background photo (AI) then render with template ────────────────
-// ── Helper: generate background image (Nanobanana → Mystic → Flux) ──────────
-// Priority: Nanobanana first (fast, single call), then Mystic (async/poll), then Flux
+// ── Helper: generate background image (Nanobanana → FAL.AI → Mystic → Flux) ──
+// Priority: Nanobanana (fast), then FAL.AI Flux, then Mystic, then Replicate Flux
 async function generateBackground(prompt: string, formato: string): Promise<string> {
   // 1. Nanobanana (Gemini image gen) — fast single API call ~5-10s
   if (googleAI) {
@@ -716,7 +913,17 @@ async function generateBackground(prompt: string, formato: string): Promise<stri
       console.warn('[bg] Nanobanana falhou:', String(err).slice(0, 120))
     }
   }
-  // 2. Freepik Mystic — async poll, up to ~40s
+  // 2. FAL.AI Flux Schnell — fast, high quality
+  if (FAL_KEY) {
+    try {
+      const result = await generateWithFalFlux(prompt, formato, 'fal-ai/flux/schnell')
+      console.log('[bg] ✅ FAL.AI Flux OK')
+      return result
+    } catch (err) {
+      console.warn('[bg] FAL.AI Flux falhou:', String(err).slice(0, 100))
+    }
+  }
+  // 3. Freepik Mystic — async poll, up to ~40s
   if (FREEPIK_KEY) {
     try {
       return await generateWithMystic(prompt, formato)
@@ -724,7 +931,7 @@ async function generateBackground(prompt: string, formato: string): Promise<stri
       console.warn('[bg] Mystic falhou:', String(err).slice(0, 100))
     }
   }
-  // 3. Flux Schnell (Replicate) — fallback
+  // 4. Flux Schnell (Replicate) — fallback
   if (replicate) {
     try {
       const ar = formato === '9:16' ? '9:16' : formato === '1:1' ? '1:1' : '4:5'
@@ -904,10 +1111,10 @@ app.post('/api/campanha/generate-image', async (req, res) => {
   }
 })
 
-// ── Generate video with Veo 3 ─────────────────────────────────────────────────
+// ── Generate video (FAL.AI Kling → Freepik Kling → Veo 3) ────────────────────
 app.post('/api/ai/generate-video', async (req, res) => {
-  if (!FREEPIK_KEY && !googleAI) {
-    res.status(503).json({ error: 'Nenhuma API de vídeo configurada (FREEPIK_API_KEY ou GOOGLE_API_KEY)' })
+  if (!FAL_KEY && !FREEPIK_KEY && !googleAI) {
+    res.status(503).json({ error: 'Nenhuma API de vídeo configurada (FAL_KEY, FREEPIK_API_KEY ou GOOGLE_API_KEY)' })
     return
   }
 
@@ -915,29 +1122,55 @@ app.post('/api/ai/generate-video', async (req, res) => {
 
   console.log(`[video] tipo=${tipo}, duração=${durationSeconds}s`)
 
-  // ── Apresentadora: Kling image-to-video with presenter reference ──────────
-  if (tipo === 'apresentadora' && FREEPIK_KEY && presenterImage) {
-    try {
-      console.log('[kling-img2vid] Gerando vídeo apresentadora com referência de imagem...')
-      const videoUrl = await generateWithKlingImg2Vid(prompt, presenterImage, durationSeconds)
-      res.json({ videoUrl, generator: 'kling-img2vid' })
-      return
-    } catch (err) {
-      console.warn('[kling-img2vid] Falhou, tentando text-to-video...', String(err))
+  // ── Apresentadora: Kling image-to-video com imagem de referência ──────────
+  if (tipo === 'apresentadora' && presenterImage) {
+    // Try FAL.AI Kling img2vid first
+    if (FAL_KEY) {
+      try {
+        console.log('[fal-kling-img2vid] Gerando vídeo apresentadora...')
+        const videoUrl = await generateWithFalKlingImg2Vid(prompt, presenterImage, durationSeconds)
+        res.json({ videoUrl, generator: 'fal-kling-img2vid' })
+        return
+      } catch (err) {
+        console.warn('[fal-kling-img2vid] Falhou, tentando Freepik...', String(err).slice(0, 80))
+      }
+    }
+    // Fallback: Freepik Kling img2vid
+    if (FREEPIK_KEY) {
+      try {
+        console.log('[kling-img2vid] Gerando vídeo apresentadora com Freepik...')
+        const videoUrl = await generateWithKlingImg2Vid(prompt, presenterImage, durationSeconds)
+        res.json({ videoUrl, generator: 'kling-img2vid' })
+        return
+      } catch (err) {
+        console.warn('[kling-img2vid] Falhou, tentando text-to-video...', String(err))
+      }
     }
   }
 
   // Narrado / fallback: text-to-video
   const narradoContext = assetsContext ? ` ${assetsContext}` : ''
+  const basePromptNarrado = tipo === 'apresentadora'
+    ? `${prompt}, professional presenter speaking to camera, Seazone real estate, coastal property backdrop, clear audio narration, cinematic`
+    : `${prompt}${narradoContext}, professional real estate cinematic footage, coastal property, natural lighting, luxury architecture, no people, no text`
 
-  // Try Freepik Kling first (faster, more affordable)
+  // Try FAL.AI Kling first
+  if (FAL_KEY) {
+    try {
+      console.log(`[fal-kling] Iniciando geração — tipo: ${tipo}, duração: ${durationSeconds}s`)
+      const videoUrl = await generateWithFalKling(basePromptNarrado, durationSeconds)
+      res.json({ videoUrl, generator: 'fal-kling-v2.1' })
+      return
+    } catch (err) {
+      console.warn('[fal-kling] Falhou, tentando Freepik Kling...', String(err).slice(0, 80))
+    }
+  }
+
+  // Try Freepik Kling
   if (FREEPIK_KEY) {
     try {
       console.log(`[kling] Iniciando geração — tipo: ${tipo}, duração: ${durationSeconds}s`)
-      const basePrompt = tipo === 'apresentadora'
-        ? `${prompt}, professional presenter speaking to camera, Seazone real estate, coastal property backdrop, clear audio narration, cinematic`
-        : `${prompt}${narradoContext}, professional real estate cinematic footage, coastal property, natural lighting, luxury architecture, no people, no text`
-      const videoUrl = await generateWithKling(basePrompt, durationSeconds)
+      const videoUrl = await generateWithKling(basePromptNarrado, durationSeconds)
       res.json({ videoUrl, generator: 'kling' })
       return
     } catch (err) {

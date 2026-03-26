@@ -9,6 +9,8 @@ export interface AiStatus {
   generation: boolean
   video: boolean
   ready: boolean
+  fal?: boolean
+  freepik?: boolean
 }
 
 export interface VideoResult {
@@ -98,4 +100,48 @@ export async function generateFromReference(
   const analysis = await analyzeReference(referenceImage, context)
   const imageDataUrl = await generateBackground(analysis.prompt, aspectRatio)
   return { imageDataUrl, analysis }
+}
+
+// ── FAL.AI dedicated endpoints ────────────────────────────────────────────────
+
+// Generate image with FAL.AI FLUX
+// model: 'fal-ai/flux/schnell' | 'fal-ai/flux/dev' | 'fal-ai/flux-pro'
+export async function generateImageFal(
+  prompt: string,
+  aspectRatio: string,
+  model: string = 'fal-ai/flux/schnell',
+): Promise<string> {
+  const res = await fetch('/api/ai/generate-fal', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, aspectRatio, model }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Erro desconhecido' }))
+    throw new Error(err.error ?? 'Erro ao gerar imagem com FAL.AI')
+  }
+  const data = await res.json()
+  return data.imageDataUrl as string
+}
+
+// Generate video with FAL.AI Kling
+// tipo: 'narrado' | 'apresentadora'
+// model: 'fal-ai/kling-video/v2.1/standard/text-to-video' | 'fal-ai/kling-video/v1.6/standard/text-to-video'
+export async function generateVideoFal(
+  prompt: string,
+  durationSeconds = 5,
+  tipo: string = 'narrado',
+  presenterImage?: string,
+  model?: string,
+): Promise<VideoResult> {
+  const res = await fetch('/api/ai/generate-video-fal', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, durationSeconds, tipo, presenterImage, model }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Erro desconhecido' }))
+    throw new Error(err.error ?? 'Erro ao gerar vídeo com FAL.AI')
+  }
+  return res.json()
 }
