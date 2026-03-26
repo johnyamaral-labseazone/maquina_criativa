@@ -78,7 +78,7 @@ export const useHistoryStore = create<HistoryState>()(
     {
       name: 'seazone-campaign-history',
       // Catch serialization errors silently
-      onRehydrateStorage: () => (state, error) => {
+      onRehydrateStorage: () => (_state, error) => {
         if (error) console.warn('[history] Falha ao reidratrar histórico:', error)
       },
     },

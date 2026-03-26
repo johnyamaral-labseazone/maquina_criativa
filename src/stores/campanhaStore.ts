@@ -35,14 +35,17 @@ export interface GeneratedCreative {
   estrutura: number        // 1 | 2 | 3
   variacao: number         // 1 | 2 | 3 | 4 | 5
   formato: CampanhaFormato // '4:5' | '9:16' | '1:1'
-  tipo: 'image' | 'narrado' | 'apresentadora'
+  tipo: 'image' | 'narrado' | 'apresentadora' | 'video' | 'carrossel'
   //   image        → static feed/story image
   //   narrado      → narrated video (voiceover + property visuals)
   //   apresentadora → presenter video (host appears on screen)
+  //   video        → legacy video type (saved campaigns)
+  //   carrossel    → carousel of images
   videoDuracao?: '30-40s' | '10-20s'
   copy: CopyVariation
   backgroundImage: string | null
   videoUrl: string | null
+  carrosselImages?: string[] | null
   status: 'pending' | 'generating' | 'done' | 'error'
   validationWarnings?: string[]
 }

@@ -83,6 +83,16 @@ export function createBriefingStore(config: StoreConfig) {
     selectedCreativeTypes: ['feed-static', 'story-static'],
     isGenerating: false,
 
+    setBriefingPdf: (data, name) => set({ briefingPdf: data, briefingPdfName: name }),
+    setBriefingUrl: (url) => set({ briefingUrl: url }),
+    toggleCreativeType: (type) =>
+      set((s) => ({
+        selectedCreativeTypes: s.selectedCreativeTypes.includes(type)
+          ? s.selectedCreativeTypes.filter((t) => t !== type)
+          : [...s.selectedCreativeTypes, type],
+      })),
+    setIsGenerating: (v) => set({ isGenerating: v }),
+
     setStep: (step) => set({ currentStep: step }),
     setSelectedEstrutura: (index) => set({ selectedEstrutura: index, selectedVariacao: 0 }),
     setSelectedVariacao: (index) => set({ selectedVariacao: index }),

@@ -17,7 +17,10 @@ const __dirname  = path.dirname(__filename)
 dotenv.config()
 
 // ── Temp dir for generated videos ────────────────────────────────────────────
-const TEMP_VIDEO_DIR = path.join(process.cwd(), 'temp', 'videos')
+// On Vercel/serverless use /tmp (writable), locally use temp/videos
+const TEMP_VIDEO_DIR = (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)
+  ? '/tmp/videos'
+  : path.join(process.cwd(), 'temp', 'videos')
 fs.mkdirSync(TEMP_VIDEO_DIR, { recursive: true })
 
 // ── Validate API keys (strip whitespace, check for non-ASCII) ────────────────
@@ -853,23 +856,43 @@ Retorne APENAS JSON válido (sem markdown) com array "copies": [{variacao, headl
 
 // ── Campanha: generate single image (Imagen 3 primary → Flux fallback) ───────
 // ── Puppeteer singleton for rendering (lazy-loaded) ──────────────────────────
+// Supports both local (puppeteer) and serverless (puppeteer-core + @sparticuz/chromium)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let browserInstance: any = null
 // Promise lock: prevents multiple parallel calls from each launching their own Chrome
 let browserLaunchPromise: Promise<unknown> | null = null
 
+const IS_SERVERLESS = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT)
+
 async function getBrowser() {
   if (browserInstance) return browserInstance
   if (!browserLaunchPromise) {
-    browserLaunchPromise = import('puppeteer').then(async (pptr) => {
-      console.log('[puppeteer] Iniciando Chrome...')
-      browserInstance = await pptr.default.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--disable-extensions'],
-      })
+    browserLaunchPromise = (async () => {
+      if (IS_SERVERLESS) {
+        // Serverless: use puppeteer-core + @sparticuz/chromium
+        const [pptr, chromium] = await Promise.all([
+          import('puppeteer-core'),
+          import('@sparticuz/chromium'),
+        ])
+        console.log('[puppeteer] Iniciando Chrome (serverless)...')
+        browserInstance = await pptr.default.launch({
+          args: chromium.default.args,
+          defaultViewport: chromium.default.defaultViewport,
+          executablePath: await chromium.default.executablePath(),
+          headless: true,
+        })
+      } else {
+        // Local dev: use bundled puppeteer
+        const pptr = await import('puppeteer')
+        console.log('[puppeteer] Iniciando Chrome (local)...')
+        browserInstance = await pptr.default.launch({
+          headless: true,
+          args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--disable-extensions'],
+        })
+      }
       console.log('[puppeteer] ✅ Chrome pronto')
       return browserInstance
-    }).catch((err) => {
+    })().catch((err) => {
       browserLaunchPromise = null // allow retry on next request
       throw err
     })
@@ -1484,24 +1507,31 @@ app.delete('/api/ai/video/:filename', (req, res) => {
   }
 })
 
-// ── Serve frontend in production ──────────────────────────────────────────────
-const DIST_DIR = path.join(__dirname, '..', 'dist')
-if (fs.existsSync(DIST_DIR)) {
-  app.use(express.static(DIST_DIR))
-  app.get('*', (_req, res) => {
-    res.sendFile(path.join(DIST_DIR, 'index.html'))
-  })
+// ── Serve frontend in production (local/Railway only — Vercel serves static separately) ──
+if (!process.env.VERCEL) {
+  const DIST_DIR = path.join(__dirname, '..', 'dist')
+  if (fs.existsSync(DIST_DIR)) {
+    app.use(express.static(DIST_DIR))
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(DIST_DIR, 'index.html'))
+    })
+  }
 }
 
-// ── Start ─────────────────────────────────────────────────────────────────────
-const PORT = Number(process.env.PORT ?? process.env.AI_SERVER_PORT ?? 3001)
-app.listen(PORT, () => {
-  console.log(`\n🤖  AI proxy  →  http://localhost:${PORT}`)
-  console.log(`    Gemini 2.5 (briefing/copies): ${googleAI   ? '✅' : '❌  GOOGLE_API_KEY ausente'}`)
-  console.log(`    Freepik Mystic (imagens):     ${FREEPIK_KEY ? '✅' : '❌  FREEPIK_API_KEY ausente'}`)
-  console.log(`    Freepik Kling (vídeos):       ${FREEPIK_KEY ? '✅' : '❌  FREEPIK_API_KEY ausente'}`)
-  console.log(`    Nanobanana (fallback img):    ${googleAI   ? '✅' : '⚠️  opcional'}`)
-  console.log(`    Veo 3 (fallback vídeo):       ${googleAI   ? '✅' : '⚠️  opcional'}`)
-  console.log(`    Flux (fallback img):          ${replicate  ? '✅' : '⚠️  opcional'}`)
-  console.log(`    Claude (visão WhatsApp):      ${anthropic  ? '✅' : '⚠️  opcional'}\n`)
-})
+// ── Export for Vercel serverless ──────────────────────────────────────────────
+export default app
+
+// ── Start (local dev / Railway / Render) ─────────────────────────────────────
+if (!process.env.VERCEL) {
+  const PORT = Number(process.env.PORT ?? process.env.AI_SERVER_PORT ?? 3001)
+  app.listen(PORT, () => {
+    console.log(`\n🤖  AI proxy  →  http://localhost:${PORT}`)
+    console.log(`    Gemini 2.5 (briefing/copies): ${googleAI    ? '✅' : '❌  GOOGLE_API_KEY ausente'}`)
+    console.log(`    FAL.AI (imagens/vídeos):      ${FAL_KEY     ? '✅' : '⚠️  opcional'}`)
+    console.log(`    ElevenLabs (TTS locução):     ${ELEVENLABS_KEY ? '✅' : '⚠️  opcional'}`)
+    console.log(`    Freepik Mystic (imagens):     ${FREEPIK_KEY  ? '✅' : '⚠️  opcional'}`)
+    console.log(`    Freepik Kling (vídeos):       ${FREEPIK_KEY  ? '✅' : '⚠️  opcional'}`)
+    console.log(`    Flux (fallback img):          ${replicate   ? '✅' : '⚠️  opcional'}`)
+    console.log(`    Claude (visão WhatsApp):      ${anthropic   ? '✅' : '⚠️  opcional'}\n`)
+  })
+}
