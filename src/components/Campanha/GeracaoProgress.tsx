@@ -164,7 +164,12 @@ export function GeracaoProgress() {
               referenceImages: state.referenceImages.map((r) => r.data),
               assetsContext: state.assetsContext,
             }, 120_000)
-            updateCreative(creative.id, { backgroundImage: data.imageDataUrl, status: 'done' })
+            // Empty imageDataUrl = AI failed silently — mark as error so user sees it
+            if (!data.imageDataUrl) {
+              updateCreative(creative.id, { status: 'error' })
+            } else {
+              updateCreative(creative.id, { backgroundImage: data.imageDataUrl, status: 'done' })
+            }
           } catch (err) {
             console.warn(`[images] Falhou ${creative.id}:`, err)
             updateCreative(creative.id, { status: 'error' })
@@ -316,13 +321,53 @@ export function GeracaoProgress() {
       {/* Progress bar */}
       {isGenerating && totalPecas > 0 && (
         <div className="w-full flex flex-col gap-2">
-          <div className="flex justify-between">
+          <div className="flex justify-between items-center">
             <span style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 12, color: 'var(--muted-foreground)' }}>Peças geradas</span>
             <span style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 12, color: 'var(--primary)', fontWeight: 600 }}>{donePecas}/{totalPecas}</span>
           </div>
           <div className="progress-bar">
             <div className="progress-bar-fill transition-all duration-500" style={{ width: totalPecas > 0 ? `${(donePecas / totalPecas) * 100}%` : '0%' }} />
           </div>
+          {/* Per-image status grid */}
+          {creatives.filter((c) => c.tipo === 'image').length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {creatives.filter((c) => c.tipo === 'image').map((c) => (
+                <div
+                  key={c.id}
+                  title={`${c.id} — ${c.status}`}
+                  className="rounded flex items-center justify-center"
+                  style={{
+                    width: 28, height: 28,
+                    backgroundColor:
+                      c.status === 'done'       ? 'rgba(34,197,94,0.15)' :
+                      c.status === 'error'      ? 'rgba(239,68,68,0.15)' :
+                      c.status === 'generating' ? 'rgba(0,85,255,0.12)'  : 'var(--secondary)',
+                    border: `1px solid ${
+                      c.status === 'done'       ? 'rgba(34,197,94,0.4)'  :
+                      c.status === 'error'      ? 'rgba(239,68,68,0.4)'  :
+                      c.status === 'generating' ? 'rgba(0,85,255,0.3)'   : 'var(--border)'
+                    }`,
+                    fontSize: 8,
+                    fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif",
+                    color:
+                      c.status === 'done'       ? '#22C55E' :
+                      c.status === 'error'      ? '#EF4444' :
+                      c.status === 'generating' ? 'var(--primary)' : 'var(--muted-foreground)',
+                  }}
+                >
+                  {c.status === 'done'       ? '✓' :
+                   c.status === 'error'      ? '✗' :
+                   c.status === 'generating' ? '⟳' :
+                   c.formato === '9:16'      ? '▌' : '■'}
+                </div>
+              ))}
+            </div>
+          )}
+          {creatives.filter((c) => c.tipo === 'image' && c.status === 'error').length > 0 && (
+            <span style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 11, color: '#EF4444' }}>
+              {creatives.filter((c) => c.tipo === 'image' && c.status === 'error').length} imagem(ns) falharam — APIs de geração indisponíveis
+            </span>
+          )}
         </div>
       )}
 

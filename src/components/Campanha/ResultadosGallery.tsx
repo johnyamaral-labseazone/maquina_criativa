@@ -122,13 +122,65 @@ export function ResultadosGallery() {
     setExporting(false)
   }
 
-  const totalDone = creatives.filter((c) => c.status === 'done').length
+  const totalDone       = creatives.filter((c) => c.status === 'done').length
+  const totalError      = creatives.filter((c) => c.status === 'error').length
+  const totalGenerating = creatives.filter((c) => c.status === 'generating' || c.status === 'pending').length
+  const isStillGenerating = totalGenerating > 0
 
   // Group filtered creatives by estrutura for section headers
   const estruturas = [1, 2, 3].filter((e) => filtered.some((c) => c.estrutura === e))
 
   return (
     <div className="flex flex-col gap-6 w-full">
+
+      {/* Live generation progress banner */}
+      {isStillGenerating && (
+        <div
+          className="flex flex-col gap-2 px-4 py-3 rounded-xl"
+          style={{ backgroundColor: 'rgba(0,85,255,0.05)', border: '1px solid rgba(0,85,255,0.15)' }}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Loader2 size={14} className="animate-spin" style={{ color: 'var(--primary)', flexShrink: 0 }} />
+              <span style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 13, fontWeight: 600, color: 'var(--primary)' }}>
+                Gerando imagens... {totalDone}/{creatives.filter((c) => c.tipo === 'image').length > 0 ? creatives.filter((c) => c.tipo === 'image').length : creatives.length} prontas
+              </span>
+            </div>
+            <span style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 12, color: 'var(--muted-foreground)' }}>
+              {Math.round((totalDone / Math.max(creatives.length, 1)) * 100)}%
+            </span>
+          </div>
+          <div style={{ height: 4, borderRadius: 2, backgroundColor: 'rgba(0,85,255,0.12)', overflow: 'hidden' }}>
+            <div
+              className="transition-all duration-500"
+              style={{
+                height: '100%',
+                borderRadius: 2,
+                backgroundColor: 'var(--primary)',
+                width: `${Math.round((totalDone / Math.max(creatives.length, 1)) * 100)}%`,
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Error banner */}
+      {totalError > 0 && !isStillGenerating && (
+        <div
+          className="flex items-center gap-2 px-4 py-3 rounded-xl"
+          style={{ backgroundColor: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)' }}
+        >
+          <span style={{ fontSize: 16 }}>⚠️</span>
+          <div className="flex flex-col gap-0.5">
+            <span style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 13, fontWeight: 600, color: '#EF4444' }}>
+              {totalError} imagem(ns) falharam na geração
+            </span>
+            <span style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 11, color: 'var(--muted-foreground)' }}>
+              As APIs de geração de imagem (Gemini, FAL.AI, Freepik) não retornaram resultado. Verifique as chaves de API no Vercel.
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Header bar */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -139,7 +191,7 @@ export function ResultadosGallery() {
             {campaignName || 'Campanha'}
           </span>
           <span className="detail-regular" style={{ color: 'var(--muted-foreground)' }}>
-            {totalDone} peças geradas
+            {totalDone} prontas{totalError > 0 ? ` · ${totalError} falharam` : ''}
           </span>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -427,13 +479,39 @@ function CreativeCard({
           />
         ) : (
           <div
-            className="absolute inset-0 flex items-center justify-center"
-            style={{ backgroundColor: 'var(--secondary)' }}
+            className="absolute inset-0 flex flex-col items-center justify-center gap-2"
+            style={{
+              backgroundColor:
+                creative.status === 'error' ? 'rgba(239,68,68,0.06)' : 'var(--secondary)',
+            }}
           >
-            {creative.status === 'generating' || creative.status === 'pending'
-              ? <Loader2 size={20} className="animate-spin" style={{ color: 'var(--muted-foreground)' }} />
-              : <span className="detail-regular" style={{ color: 'var(--muted-foreground)' }}>–</span>
-            }
+            {creative.status === 'generating' ? (
+              <>
+                <Loader2 size={20} className="animate-spin" style={{ color: 'var(--primary)' }} />
+                <span style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 10, color: 'var(--muted-foreground)', textAlign: 'center', padding: '0 8px' }}>
+                  Gerando...
+                </span>
+              </>
+            ) : creative.status === 'pending' ? (
+              <>
+                <Loader2 size={16} className="animate-spin" style={{ color: 'var(--border)' }} />
+                <span style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 10, color: 'var(--border)' }}>
+                  Aguardando
+                </span>
+              </>
+            ) : creative.status === 'error' ? (
+              <>
+                <span style={{ fontSize: 18 }}>⚠️</span>
+                <span style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 10, color: '#EF4444', textAlign: 'center', padding: '0 8px', fontWeight: 600 }}>
+                  Falhou
+                </span>
+                <span style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 9, color: 'var(--muted-foreground)', textAlign: 'center', padding: '0 8px' }}>
+                  API indisponível
+                </span>
+              </>
+            ) : (
+              <span className="detail-regular" style={{ color: 'var(--muted-foreground)' }}>–</span>
+            )}
           </div>
         )}
 
