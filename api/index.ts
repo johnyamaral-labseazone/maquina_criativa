@@ -143,7 +143,7 @@ function aspectHint(r: string) {
 async function generateWithGemini(prompt: string, aspectRatio: string): Promise<{ base64: string; mimeType: string }> {
   if (!googleAI) throw new Error('GOOGLE_API_KEY não configurada')
   const fullPrompt = `${prompt}, ${aspectHint(aspectRatio)}`
-  for (const model of ['gemini-2.0-flash-exp-image-generation', 'gemini-2.0-flash-thinking-exp']) {
+  for (const model of ['gemini-1.5-flash-exp-image-generation', 'gemini-1.5-flash-thinking-exp']) {
     try {
       const response = await googleAI.models.generateContent({
         model, contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
@@ -379,16 +379,16 @@ app.post('/api/campanha/parse-briefing', async (req, res) => {
   try {
     let responseText = ''
     if (type === 'url' && url) {
-      const r = await googleAI.models.generateContent({ model: 'gemini-2.0-flash', contents: [{ role: 'user', parts: [{ text: `${JSON_PROMPT}\n\nURL do briefing: ${url}` }] }] })
+      const r = await googleAI.models.generateContent({ model: 'gemini-1.5-flash', contents: [{ role: 'user', parts: [{ text: `${JSON_PROMPT}\n\nURL do briefing: ${url}` }] }] })
       responseText = r.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}'
     } else if ((type === 'pdf' && pdfData) || (type === 'image' && imageData)) {
       const data = (pdfData || imageData)!
       const b64 = data.replace(/^data:[^;]+;base64,/, '')
       const mime = data.match(/^data:([^;]+);/)?.[1] ?? (type === 'pdf' ? 'application/pdf' : 'image/jpeg')
-      const r = await googleAI.models.generateContent({ model: 'gemini-2.0-flash', contents: [{ role: 'user', parts: [{ inlineData: { mimeType: mime, data: b64 } }, { text: JSON_PROMPT }] }] })
+      const r = await googleAI.models.generateContent({ model: 'gemini-1.5-flash', contents: [{ role: 'user', parts: [{ inlineData: { mimeType: mime, data: b64 } }, { text: JSON_PROMPT }] }] })
       responseText = r.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}'
     } else if (type === 'manual' && manual) {
-      const r = await googleAI.models.generateContent({ model: 'gemini-2.0-flash', contents: [{ role: 'user', parts: [{ text: `${JSON_PROMPT}\n\nBriefing manual:\n${manual}` }] }] })
+      const r = await googleAI.models.generateContent({ model: 'gemini-1.5-flash', contents: [{ role: 'user', parts: [{ text: `${JSON_PROMPT}\n\nBriefing manual:\n${manual}` }] }] })
       responseText = r.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}'
     } else {
       res.status(400).json({ error: 'Tipo de briefing inválido' }); return
@@ -421,7 +421,7 @@ app.post('/api/campanha/generate-copies-full', async (req, res) => {
   const totalCopies = estruturasCount * variacoesCount
   const prompt = `${SEAZONE_CONTEXT}\n\nCrie copies para uma campanha de marketing imobiliário com ${estruturasCount} ESTRUTURA${estruturasCount > 1 ? 'S' : ''} e ${variacoesCount} VARIAÇÃO${variacoesCount > 1 ? 'ÕES' : ''} cada (${totalCopies} copies no total).\n\nCampanha: ${campaignName || briefing?.produto}\nProduto: ${briefing?.produto}\nLocalização: ${briefing?.localizacao ?? 'não informada'}\nPúblico: ${briefing?.publicoAlvo}\nMensagens: ${(briefing?.mensagensPrincipais ?? []).join(', ')}\nTom: ${briefing?.tom || 'profissional'}\nDiferenciais: ${(briefing?.diferenciais ?? []).join(', ')}\nCTA base: ${briefing?.cta ?? 'Saiba mais'}\n${financialCtx}\n\nESTRUTURAS:\n- ${estruturaLines}\n\nRetorne APENAS JSON válido (sem markdown):\n{"copies":[{"estrutura":1,"variacao":1,"headline":"...","body":"...","cta":"...","videoRoteiro":"roteiro de 30-40 segundos para vídeo narrado"}]}`
   try {
-    const r = await googleAI.models.generateContent({ model: 'gemini-2.0-flash', contents: [{ role: 'user', parts: [{ text: prompt }] }] })
+    const r = await googleAI.models.generateContent({ model: 'gemini-1.5-flash', contents: [{ role: 'user', parts: [{ text: prompt }] }] })
     const raw = r.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}'
     const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
     res.json(JSON.parse(cleaned))
@@ -466,7 +466,7 @@ app.post('/api/campanha/generate-copies', async (req, res) => {
   const { briefing } = req.body
   try {
     const r = await googleAI.models.generateContent({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-1.5-flash',
       contents: [{ role: 'user', parts: [{ text: `${SEAZONE_CONTEXT}\n\nGere 3 variações de copy para:\nProduto: ${briefing?.produto}\nTom: ${briefing?.tom}\nCTA: ${briefing?.cta}\n\nRetorne JSON: {"copies":[{"headline":"...","body":"...","cta":"..."}]}` }] }],
     })
     const raw = r.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}'
