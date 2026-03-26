@@ -158,6 +158,51 @@ async function generateWithGemini(prompt: string, aspectRatio: string): Promise<
   throw new Error('Gemini image generation falhou')
 }
 
+// ── Reference style analysis (Gemini) ────────────────────────────────────────
+async function analyzeReferenceStyle(imageDataUrl: string): Promise<string> {
+  if (!googleAI) return ''
+  try {
+    const base64Match = imageDataUrl.match(/^data:(image\/\w+);base64,(.+)$/)
+    if (!base64Match) return ''
+    const [, mimeType, base64Data] = base64Match
+    const response = await googleAI.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: [{ role: 'user', parts: [
+        { inlineData: { data: base64Data, mimeType } },
+        { text: `Analise esta peça publicitária e descreva o estilo visual em inglês para reprodução por IA generativa. Foque em: layout/composição, paleta de cores, tipografia, tratamento de imagem de fundo, elementos gráficos, tom visual. Responda APENAS com a descrição em um parágrafo conciso em inglês.` },
+      ] }],
+    })
+    return (response.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim()
+  } catch (err) {
+    console.warn('[style-analysis] Falhou:', String(err).slice(0, 100))
+    return ''
+  }
+}
+
+async function generateWithGeminiStyled(prompt: string, aspectRatio: string, refDataUrl: string, styleDesc: string): Promise<{ base64: string; mimeType: string }> {
+  if (!googleAI) throw new Error('GOOGLE_API_KEY não configurada')
+  const base64Match = refDataUrl.match(/^data:(image\/\w+);base64,(.+)$/)
+  if (!base64Match) throw new Error('Ref image format invalid')
+  const [, refMime, refB64] = base64Match
+  const styledPrompt = `Generate an advertisement creative image following this exact visual style: ${styleDesc}. The image content should be: ${prompt}, ${aspectHint(aspectRatio)}. Reproduce the same layout, color palette, typography style, and visual treatment as the reference but with new content.`
+  for (const model of ['gemini-2.0-flash-exp-image-generation']) {
+    try {
+      const response = await googleAI.models.generateContent({
+        model, contents: [{ role: 'user', parts: [
+          { inlineData: { data: refB64, mimeType: refMime } },
+          { text: styledPrompt },
+        ] }],
+        config: { responseModalities: ['IMAGE', 'TEXT'] },
+      })
+      const parts = response.candidates?.[0]?.content?.parts ?? []
+      const imagePart = parts.find((p: Record<string, unknown>) => p.inlineData) as { inlineData: { data: string; mimeType: string } } | undefined
+      if (!imagePart?.inlineData?.data) throw new Error('Sem imagem')
+      return { base64: imagePart.inlineData.data, mimeType: imagePart.inlineData.mimeType ?? 'image/png' }
+    } catch { /* try next */ }
+  }
+  throw new Error('Styled generation failed')
+}
+
 // ── Replicate helper ──────────────────────────────────────────────────────────
 async function replicateToBase64(output: unknown): Promise<string> {
   const item = Array.isArray(output) ? output[0] : output
@@ -428,13 +473,42 @@ app.post('/api/campanha/generate-copies-full', async (req, res) => {
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
 
-// Generate creative (no template on Vercel — returns raw AI image)
+// Style analysis cache
+const styleCache = new Map<string, string>()
+
+// Generate creative (with optional reference-based style matching)
 app.post('/api/campanha/generate-creative', async (req, res) => {
   try {
-    const { copy, formato } = req.body
-    const bgPrompt = `Seazone real estate Brazil, ${copy?.headline || ''}, luxury coastal property aerial drone view, natural sunlight, turquoise ocean, no people, no text, no watermarks`
-    const bgDataUrl = await generateBackground(bgPrompt, formato ?? '4:5').catch(() => '')
-    res.json({ imageDataUrl: bgDataUrl, generator: bgDataUrl ? 'ai-direct' : 'none' })
+    const { copy, formato, referenceImages, assetsContext } = req.body
+    const refs: string[] = Array.isArray(referenceImages) ? referenceImages : []
+    const hasRef = refs.length > 0
+    const contextHint = assetsContext ? `, ${assetsContext}` : ''
+    const bgPrompt = `Seazone real estate Brazil, ${copy?.headline || ''}, luxury coastal property aerial drone view, natural sunlight, turquoise ocean${contextHint}, no people, no text overlay, no watermarks`
+
+    let bgDataUrl = ''
+
+    // Try reference-based styled generation first
+    if (hasRef && googleAI) {
+      const refKey = refs[0].slice(0, 60)
+      let styleDesc = styleCache.get(refKey)
+      if (!styleDesc) {
+        styleDesc = await analyzeReferenceStyle(refs[0])
+        if (styleDesc) styleCache.set(refKey, styleDesc)
+      }
+      if (styleDesc) {
+        try {
+          const { base64, mimeType } = await generateWithGeminiStyled(bgPrompt, formato ?? '4:5', refs[0], styleDesc)
+          bgDataUrl = `data:${mimeType};base64,${base64}`
+        } catch { /* fallback below */ }
+      }
+    }
+
+    // Fallback to standard generation
+    if (!bgDataUrl) {
+      bgDataUrl = await generateBackground(bgPrompt, formato ?? '4:5').catch(() => '')
+    }
+
+    res.json({ imageDataUrl: bgDataUrl, generator: bgDataUrl ? (hasRef ? 'styled-ai' : 'ai-direct') : 'none' })
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
 
