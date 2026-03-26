@@ -394,7 +394,7 @@ app.post('/api/campanha/parse-briefing', async (req, res) => {
       res.status(400).json({ error: 'Tipo de briefing inválido' }); return
     }
     const cleaned = responseText.replace(/```json\n?|\n?```/g, '').trim()
-    res.json(JSON.parse(cleaned))
+    res.json({ briefing: JSON.parse(cleaned) })
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
 
