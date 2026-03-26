@@ -149,7 +149,7 @@ export function BriefingInput() {
               Servidor de IA offline
             </span>
             <span style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: 12, color: 'rgba(239,68,68,0.8)' }}>
-              Execute no terminal: <code style={{ backgroundColor: 'rgba(239,68,68,0.1)', padding: '1px 6px', borderRadius: 4, fontFamily: 'monospace' }}>npm run dev:full</code> dentro de <code style={{ backgroundColor: 'rgba(239,68,68,0.1)', padding: '1px 6px', borderRadius: 4, fontFamily: 'monospace' }}>C:\Users\Seazone\creative-automation</code>
+              Execute no terminal: <code style={{ backgroundColor: 'rgba(239,68,68,0.1)', padding: '1px 6px', borderRadius: 4, fontFamily: 'monospace' }}>npm run dev:full</code> dentro de <code style={{ backgroundColor: 'rgba(239,68,68,0.1)', padding: '1px 6px', borderRadius: 4, fontFamily: 'monospace' }}>C:\Users\Seazone\maquina_criativa</code>
             </span>
           </div>
         </div>
