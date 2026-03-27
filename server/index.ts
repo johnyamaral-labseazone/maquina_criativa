@@ -160,6 +160,41 @@ async function generateWithKling(prompt: string, durationSeconds: number): Promi
   throw new Error('Kling polling timeout')
 }
 
+// Generate video with Freepik Veo 2 (text-to-video)
+async function generateWithFreepikVeo2(prompt: string, durationSeconds: number, aspectRatio = '9:16'): Promise<string> {
+  if (!FREEPIK_KEY) throw new Error('FREEPIK_API_KEY não configurada')
+
+  const body = {
+    prompt,
+    duration: Math.min(Math.max(durationSeconds, 5), 8),
+    aspect_ratio: aspectRatio,
+    negative_prompt: 'people, text, watermarks, low quality, blurry',
+  }
+
+  const r = await fetch(`${FREEPIK_BASE}/ai/video/veo2`, {
+    method: 'POST',
+    headers: await freepikHeaders(),
+    body: JSON.stringify(body),
+  })
+
+  const data = await r.json() as { task_id?: string; data?: { url?: string }; error?: string }
+  if (!r.ok) throw new Error(`Freepik Veo2 error ${r.status}: ${JSON.stringify(data)}`)
+
+  const taskId = data.task_id
+  if (!taskId) throw new Error('Freepik Veo2 não retornou task_id')
+
+  for (let i = 0; i < 72; i++) {
+    await new Promise((res) => setTimeout(res, 5000))
+    const poll = await fetch(`${FREEPIK_BASE}/ai/video/veo2/${taskId}`, {
+      headers: await freepikHeaders(),
+    })
+    const pd = await poll.json() as { status?: string; data?: { url?: string }; error?: string }
+    if (pd.status === 'completed' && pd.data?.url) return pd.data.url
+    if (pd.status === 'failed') throw new Error(`Freepik Veo2 falhou: ${pd.error ?? 'desconhecido'}`)
+  }
+  throw new Error('Freepik Veo2 polling timeout')
+}
+
 // Generate presenter video with Freepik Kling image-to-video
 // Uses the presenter's reference photo + a script prompt
 async function generateWithKlingImg2Vid(prompt: string, imageDataUrl: string, durationSeconds: number): Promise<string> {
@@ -1389,7 +1424,19 @@ app.post('/api/ai/generate-video', async (req, res) => {
     ? `${prompt}, professional presenter speaking to camera, Seazone real estate, coastal property backdrop, clear audio narration, cinematic`
     : `${prompt}${narradoContext}, professional real estate cinematic footage, coastal property, natural lighting, luxury architecture, no people, no text`
 
-  // Try FAL.AI Kling first
+  // 1. Freepik Veo 2 — primário
+  if (FREEPIK_KEY) {
+    try {
+      console.log(`[freepik-veo2] Iniciando geração — tipo: ${tipo}, duração: ${durationSeconds}s`)
+      const videoUrl = await generateWithFreepikVeo2(basePromptNarrado, durationSeconds, aspectRatio)
+      res.json({ videoUrl, generator: 'freepik-veo2' })
+      return
+    } catch (err) {
+      console.warn('[freepik-veo2] Falhou, tentando FAL.AI Kling...', String(err).slice(0, 80))
+    }
+  }
+
+  // 2. FAL.AI Kling v2.1 — fallback
   if (FAL_KEY) {
     try {
       console.log(`[fal-kling] Iniciando geração — tipo: ${tipo}, duração: ${durationSeconds}s`)
@@ -1397,19 +1444,19 @@ app.post('/api/ai/generate-video', async (req, res) => {
       res.json({ videoUrl, generator: 'fal-kling-v2.1' })
       return
     } catch (err) {
-      console.warn('[fal-kling] Falhou, tentando Freepik Kling...', String(err).slice(0, 80))
+      console.warn('[fal-kling] Falhou, tentando Freepik Kling v3...', String(err).slice(0, 80))
     }
   }
 
-  // Try Freepik Kling
+  // 3. Freepik Kling v3 — fallback
   if (FREEPIK_KEY) {
     try {
-      console.log(`[kling] Iniciando geração — tipo: ${tipo}, duração: ${durationSeconds}s`)
+      console.log(`[kling-v3] Iniciando geração — tipo: ${tipo}, duração: ${durationSeconds}s`)
       const videoUrl = await generateWithKling(basePromptNarrado, durationSeconds)
-      res.json({ videoUrl, generator: 'kling' })
+      res.json({ videoUrl, generator: 'kling-v3' })
       return
     } catch (err) {
-      console.warn('[kling] Falhou, tentando Veo 3...', String(err))
+      console.warn('[kling-v3] Falhou, tentando Veo 3...', String(err))
     }
   }
 
