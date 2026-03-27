@@ -768,16 +768,19 @@ app.post('/api/campanha/fetch-figma-assets', async (req, res) => {
 
   const headers = { 'X-Figma-Token': FIGMA_TOKEN }
 
+  // Global timeout: 50s to stay within Vercel's 60s limit
+  const globalAbort = new AbortController()
+  const globalTimer = setTimeout(() => globalAbort.abort(), 50000)
+
   try {
     let nodeIds: string[] = []
 
     if (nodeId) {
-      // Specific frame/component requested
       nodeIds = [nodeId]
     } else {
-      // Fetch file structure and get top-level frames from first page
-      const fileResp = await fetch(`https://api.figma.com/v1/files/${fileKey}?depth=2`, {
-        headers, signal: AbortSignal.timeout(20000),
+      // depth=1 is faster — only fetches top-level children of each page
+      const fileResp = await fetch(`https://api.figma.com/v1/files/${fileKey}?depth=1`, {
+        headers, signal: globalAbort.signal,
       })
       if (!fileResp.ok) {
         const err = await fileResp.json() as { message?: string }
@@ -787,7 +790,7 @@ app.post('/api/campanha/fetch-figma-assets', async (req, res) => {
       const firstPage = fileData.document?.children?.[0]
       const frames = (firstPage?.children ?? [])
         .filter(n => ['FRAME', 'COMPONENT', 'COMPONENT_SET', 'SECTION'].includes(n.type))
-        .slice(0, 12)
+        .slice(0, 4)   // max 4 frames — keeps total time well under 60s
       nodeIds = frames.map(n => n.id)
     }
 
@@ -796,9 +799,9 @@ app.post('/api/campanha/fetch-figma-assets', async (req, res) => {
       return
     }
 
-    // Export frames as PNG images
-    const exportUrl = `https://api.figma.com/v1/images/${fileKey}?ids=${encodeURIComponent(nodeIds.join(','))}&format=png&scale=1.5`
-    const exportResp = await fetch(exportUrl, { headers, signal: AbortSignal.timeout(20000) })
+    // Export frames as PNG — scale=1 for smaller files and faster download
+    const exportUrl = `https://api.figma.com/v1/images/${fileKey}?ids=${encodeURIComponent(nodeIds.join(','))}&format=png&scale=1`
+    const exportResp = await fetch(exportUrl, { headers, signal: globalAbort.signal })
     if (!exportResp.ok) {
       const err = await exportResp.json() as { message?: string }
       throw new Error(err.message ?? `Figma export ${exportResp.status}`)
@@ -812,12 +815,15 @@ app.post('/api/campanha/fetch-figma-assets', async (req, res) => {
       return
     }
 
-    // Download images from Figma's S3 URLs and convert to base64 (URLs expire)
+    // Download images in parallel — individual 12s timeout each
     const base64Images = (
       await Promise.all(
-        imageUrls.slice(0, 8).map(async (url) => {
+        imageUrls.slice(0, 4).map(async (url) => {
           try {
-            const r = await fetch(url, { signal: AbortSignal.timeout(15000) })
+            const ctrl = new AbortController()
+            const t = setTimeout(() => ctrl.abort(), 12000)
+            const r = await fetch(url, { signal: ctrl.signal })
+            clearTimeout(t)
             if (!r.ok) return null
             const buf = await r.arrayBuffer()
             return `data:image/png;base64,${Buffer.from(buf).toString('base64')}`
@@ -829,8 +835,16 @@ app.post('/api/campanha/fetch-figma-assets', async (req, res) => {
     console.log(`[figma] ${base64Images.length} frame(s) exportado(s) de ${fileKey}`)
     res.json({ images: base64Images, count: base64Images.length })
   } catch (err) {
-    console.error('[figma] fetch-figma-assets falhou:', String(err))
-    res.status(500).json({ error: String(err) })
+    const msg = String(err)
+    const isTimeout = msg.includes('abort') || msg.includes('timeout') || msg.includes('AbortError')
+    console.error('[figma] fetch-figma-assets falhou:', msg)
+    res.status(isTimeout ? 504 : 500).json({
+      error: isTimeout
+        ? 'Timeout ao carregar o Figma. O arquivo pode ser muito grande — tente compartilhar um frame específico via link de seleção.'
+        : msg,
+    })
+  } finally {
+    clearTimeout(globalTimer)
   }
 })
 

@@ -21,11 +21,14 @@ export default function AssetsStep2() {
     setFigmaLoading(true)
     setFigmaError('')
     setFigmaSuccess('')
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 55000)
     try {
       const r = await fetch('/api/campanha/fetch-figma-assets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ figmaUrl: figmaUrl.trim() }),
+        signal: ctrl.signal,
       })
       const d = await r.json() as { images?: string[]; count?: number; error?: string }
       if (!r.ok || d.error) throw new Error(d.error ?? `Erro ${r.status}`)
@@ -33,8 +36,13 @@ export default function AssetsStep2() {
       setFigmaImages(d.images)
       setFigmaSuccess(`${d.count} frame(s) carregado(s) do Figma ✓`)
     } catch (err) {
-      setFigmaError(String(err).replace('Error: ', ''))
+      const msg = String(err)
+      const isAbort = msg.includes('abort') || msg.includes('AbortError')
+      setFigmaError(isAbort
+        ? 'Timeout: o arquivo Figma é muito grande. Tente selecionar um frame específico e copiar o link de seleção.'
+        : msg.replace('Error: ', ''))
     } finally {
+      clearTimeout(timer)
       setFigmaLoading(false)
     }
   }
