@@ -130,6 +130,7 @@ interface Campanha2Store {
   designer: AgentBase & { creatives: DesignerCreative[] }
   videoMaker: AgentBase & { videos: VideoOutput[] }
   diretorArte: AgentBase & { review: ArtReview | null }
+  driveImages: string[]
 
   _cancel: { v: boolean }
 
@@ -184,6 +185,7 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
   designer: { ...defaultAgent, creatives: [] },
   videoMaker: { ...defaultAgent, videos: [] },
   diretorArte: { ...defaultAgent, review: null },
+  driveImages: [],
 
   _cancel: { v: false },
 
@@ -287,7 +289,7 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
     }
 
     // ── DESIGNER ────────────────────────────────────────────────────────────
-    if (s.incluirImagens) {
+    const runDesigner = async (driveImageUrls: string[]) => {
       const creatives: DesignerCreative[] = []
       for (let e = 1; e <= s.estruturasCount; e++) {
         for (let v = 1; v <= s.variacoesCount; v++) {
@@ -298,29 +300,36 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
           }
         }
       }
-      get()._patch('designer', { creatives, status: 'working', progress: 5, message: 'Gerando imagens...' })
-      get()._log('designer', `Iniciando geração de ${creatives.length} imagens`)
+      get()._patch('designer', { creatives, status: 'working', progress: 5, message: driveImageUrls.length > 0 ? 'Usando fotos do Drive...' : 'Gerando imagens com IA...' })
+      get()._log('designer', driveImageUrls.length > 0 ? `${driveImageUrls.length} foto(s) do Drive para ${creatives.length} criativos` : `Iniciando geração IA de ${creatives.length} imagens`)
 
       const total = creatives.length
       let imgDone = 0
 
-      Promise.all(creatives.map(async (cr) => {
+      await Promise.all(creatives.map(async (cr) => {
         if (cancel.v) return
         set((st) => ({
           designer: { ...st.designer, creatives: st.designer.creatives.map(c => c.id === cr.id ? { ...c, status: 'generating' } : c) },
         }))
         try {
-          const r = await apiFetch('/api/campanha/generate-creative', {
-            copy: cr.copy, formato: cr.formato, referenceImages: refs, assetsContext: s.assetsContext,
-          })
-          const d = await r.json() as { imageDataUrl?: string }
-          const img = d.imageDataUrl ?? ''
+          let img = ''
+          if (driveImageUrls.length > 0) {
+            // Use Drive photo directly (cycle through by estrutura)
+            img = driveImageUrls[(cr.estrutura - 1) % driveImageUrls.length]
+          } else {
+            // AI generation fallback
+            const r = await apiFetch('/api/campanha/generate-creative', {
+              copy: cr.copy, formato: cr.formato, referenceImages: refs, assetsContext: s.assetsContext,
+            })
+            const d = await r.json() as { imageDataUrl?: string }
+            img = d.imageDataUrl ?? ''
+          }
           imgDone++
           set((st) => ({
             designer: {
               ...st.designer,
               progress: Math.round((imgDone / total) * 100),
-              message: `${imgDone}/${total} imagens geradas`,
+              message: `${imgDone}/${total} imagens prontas`,
               creatives: st.designer.creatives.map(c => c.id === cr.id ? { ...c, imageDataUrl: img, status: img ? 'done' : 'error' } : c),
             },
           }))
@@ -332,12 +341,37 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
           }))
           get()._log('designer', `Erro: ${String(err).slice(0, 60)}`, 'error')
         }
-      })).then(() => {
-        if (cancel.v) return
+      }))
+      if (!cancel.v) {
         get()._patch('designer', { status: 'done', message: 'Imagens entregues', progress: 100 })
         get()._log('designer', `${imgDone}/${total} imagens finalizadas`, 'success')
         runDirector()
-      })
+      }
+    }
+
+    if (s.incluirImagens) {
+      // Fetch Drive images first (if Drive URL provided), then start designer
+      const startDesigner = async () => {
+        let driveImageUrls: string[] = []
+        if (s.assetsUrl?.includes('drive.google.com')) {
+          try {
+            get()._log('designer', 'Buscando fotos no Google Drive...')
+            const r = await apiFetch('/api/campanha/fetch-drive-images', { driveUrl: s.assetsUrl }, 20000)
+            const d = await r.json() as { imageUrls?: string[]; error?: string }
+            if (d.imageUrls?.length) {
+              driveImageUrls = d.imageUrls
+              set({ driveImages: driveImageUrls })
+              get()._log('designer', `${driveImageUrls.length} foto(s) encontrada(s) no Drive`, 'success')
+            } else {
+              get()._log('designer', d.error ? `Drive: ${d.error}` : 'Pasta sem imagens — usando geração IA', 'info')
+            }
+          } catch (err) {
+            get()._log('designer', `Drive inacessível (${String(err).slice(0, 50)}) — usando geração IA`, 'info')
+          }
+        }
+        await runDesigner(driveImageUrls)
+      }
+      startDesigner()
     } else {
       get()._patch('designer', { status: 'done', message: 'Desativado', progress: 100 })
       runDirector()
@@ -436,6 +470,7 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
       designer: { ...defaultAgent, creatives: [] },
       videoMaker: { ...defaultAgent, videos: [] },
       diretorArte: { ...defaultAgent, review: null },
+      driveImages: [],
     })
 
     const run = async () => {

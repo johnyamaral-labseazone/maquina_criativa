@@ -185,7 +185,7 @@ export default function Resultados2() {
                     <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}>
                       {eCrs.filter(c => c.formato === '4:5').map(cr => (
                         <div key={cr.id} className="flex flex-col gap-1.5">
-                          <CreativeCard2 creative={cr} copy={cr.copy} compact />
+                          <CreativeCard2 creative={cr} copy={cr.copy} compact briefing={atendimento.result} />
                           <span style={{ fontSize: 10, color: 'var(--muted-foreground)', textAlign: 'center' }}>V{cr.variacao}</span>
                         </div>
                       ))}
@@ -200,7 +200,7 @@ export default function Resultados2() {
                     <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))' }}>
                       {eCrs.filter(c => c.formato === '9:16').map(cr => (
                         <div key={cr.id} className="flex flex-col gap-1.5">
-                          <CreativeCard2 creative={cr} copy={cr.copy} compact />
+                          <CreativeCard2 creative={cr} copy={cr.copy} compact briefing={atendimento.result} />
                           <span style={{ fontSize: 10, color: 'var(--muted-foreground)', textAlign: 'center' }}>V{cr.variacao}</span>
                         </div>
                       ))}

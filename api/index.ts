@@ -233,7 +233,7 @@ async function analyzeReferenceStyle(imageDataUrl: string): Promise<string> {
       model: 'gemini-2.0-flash',
       contents: [{ role: 'user', parts: [
         { inlineData: { data: base64Data, mimeType } },
-        { text: `Analise esta peça publicitária e descreva o estilo visual em inglês para reprodução por IA generativa. Foque em: layout/composição, paleta de cores, tipografia, tratamento de imagem de fundo, elementos gráficos, tom visual. Responda APENAS com a descrição em um parágrafo conciso em inglês.` },
+        { text: `Analyze this real estate advertisement image. Describe the visual style for AI image generation in English: background photo style (aerial/ground/interior, lighting, colors, composition), color palette, overall mood. Focus ONLY on the background photography style, not text overlays. One concise paragraph in English.` },
       ] }],
     })
     return (response.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim()
@@ -543,6 +543,50 @@ app.post('/api/campanha/parse-briefing', async (req, res) => {
     }
     const cleaned = responseText.replace(/```json\n?|\n?```/g, '').trim()
     res.json({ briefing: JSON.parse(cleaned) })
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
+// ── Google Drive image fetcher ────────────────────────────────────────────────
+function extractDriveFolderId(url: string): string | null {
+  const m = url.match(/\/folders\/([a-zA-Z0-9_-]+)/)
+  return m?.[1] ?? null
+}
+
+// List images in a public Drive folder (returns proxy URLs to keep API key server-side)
+app.post('/api/campanha/fetch-drive-images', async (req, res) => {
+  if (!GOOGLE_KEY) { res.status(503).json({ error: 'GOOGLE_API_KEY não configurada' }); return }
+  const { driveUrl } = req.body as { driveUrl?: string }
+  const folderId = extractDriveFolderId(driveUrl ?? '')
+  if (!folderId) { res.status(400).json({ error: 'URL do Google Drive inválida — use uma pasta pública' }); return }
+  try {
+    const q = encodeURIComponent(`'${folderId}' in parents and mimeType contains 'image/' and trashed=false`)
+    const listUrl = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,mimeType)&pageSize=20&key=${GOOGLE_KEY}`
+    const r = await fetch(listUrl, { signal: AbortSignal.timeout(10000) })
+    const d = await r.json() as { files?: Array<{ id: string; name: string; mimeType: string }>; error?: { message?: string } }
+    if (!r.ok) throw new Error(d.error?.message ?? `Drive API ${r.status}`)
+    const files = (d.files ?? []).filter(f => f.mimeType.startsWith('image/'))
+    const imageUrls = files.slice(0, 10).map(f => `/api/campanha/drive-image/${f.id}`)
+    console.log(`[drive] ${imageUrls.length} imagem(ns) na pasta ${folderId}`)
+    res.json({ imageUrls, count: imageUrls.length })
+  } catch (err) {
+    console.error('[drive] fetch-drive-images falhou:', String(err))
+    res.status(500).json({ error: String(err) })
+  }
+})
+
+// Proxy Drive file download — keeps GOOGLE_KEY server-side, adds CORS headers
+app.get('/api/campanha/drive-image/:fileId', async (req, res) => {
+  if (!GOOGLE_KEY) { res.status(503).send('GOOGLE_API_KEY não configurada'); return }
+  try {
+    const { fileId } = req.params
+    const r = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media&key=${GOOGLE_KEY}`, {
+      signal: AbortSignal.timeout(25000),
+    })
+    if (!r.ok) { res.status(r.status).send(`Drive download ${r.status}`); return }
+    res.setHeader('Content-Type', r.headers.get('content-type') ?? 'image/jpeg')
+    res.setHeader('Cache-Control', 'public, max-age=3600')
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.send(Buffer.from(await r.arrayBuffer()))
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
 
