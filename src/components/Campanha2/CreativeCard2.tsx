@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { toJpeg } from 'html-to-image'
-import { Download, Loader2 } from 'lucide-react'
+import { Download, Loader2, Eye } from 'lucide-react'
 import type { DesignerCreative, CopySet2, ParsedBriefing2 } from '../../stores/campanha2Store'
 
 interface Props {
@@ -8,6 +8,7 @@ interface Props {
   copy: CopySet2
   compact?: boolean
   briefing?: ParsedBriefing2 | null
+  onPreview?: () => void
 }
 
 // Parse ROI string like "16,4% ao ano" → { value: "16,4%", period: "ao ano" }
@@ -17,7 +18,7 @@ function parseRoi(roi: string): { value: string; period: string } {
   return { value: m?.[1]?.trim() ?? roi, period: m?.[2]?.trim() || 'ao ano' }
 }
 
-export function CreativeCard2({ creative, copy, compact = false, briefing }: Props) {
+export function CreativeCard2({ creative, copy, compact = false, briefing, onPreview }: Props) {
   const cardRef = useRef<HTMLDivElement>(null)
   const [downloading, setDownloading] = useState(false)
   const isStory = creative.formato === '9:16'
@@ -244,11 +245,20 @@ export function CreativeCard2({ creative, copy, compact = false, briefing }: Pro
         }} />
       </div>
 
-      {/* Hover overlay with download button */}
+      {/* Hover overlay with preview + download buttons */}
       <div
         className="absolute inset-0 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity"
-        style={{ background: 'rgba(0,0,0,0.35)', borderRadius: compact ? 6 : 10 }}
+        style={{ background: 'rgba(0,0,0,0.45)', borderRadius: compact ? 6 : 10 }}
       >
+        {onPreview && (
+          <button
+            onClick={onPreview}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl"
+            style={{ backgroundColor: '#0055FF', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#fff' }}
+          >
+            <Eye size={13} /> Ver
+          </button>
+        )}
         <button
           onClick={handleDownload}
           disabled={downloading}

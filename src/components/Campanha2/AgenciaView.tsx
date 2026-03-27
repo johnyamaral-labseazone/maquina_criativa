@@ -106,7 +106,7 @@ function AgentCard({
 // ── Copy editor panel ─────────────────────────────────────────────────────────
 function CopyEditor() {
   const { redator, updateCopy, approveRedator, cancelAgency } = useCampanha2Store()
-  const copies = redator.copies ?? []
+  const copies = Array.isArray(redator.copies) ? redator.copies : []
   const [activeIdx, setActiveIdx] = useState(0)
 
   const estruturas = [...new Set(copies.map(c => c.estrutura))].sort()
@@ -232,6 +232,7 @@ interface RoteirosPreviewProps {
   roteirosApresentadora: Roteiro[]
 }
 function RoteirosPreview({ roteirosNarrado, roteirosApresentadora }: RoteirosPreviewProps) {
+  if (!Array.isArray(roteirosNarrado) || !Array.isArray(roteirosApresentadora)) return null
   if (!roteirosNarrado.length && !roteirosApresentadora.length) return null
 
   const renderRoteiro = (rot: Roteiro, tipo: string) => (

@@ -87,6 +87,9 @@ export interface ReferenceImage2 {
   dataUrl: string
 }
 
+// Projeto Figma padrão — carregado automaticamente pelo Designer como referência de estilo
+const DEFAULT_FIGMA_URL = 'https://www.figma.com/design/TuwWtcUvNB5uwi4v03qvAK/Criativos---Est%C3%A1ticos---Bonito-II---SZI'
+
 const defaultAgent: AgentBase = {
   status: 'idle',
   progress: 0,
@@ -131,6 +134,8 @@ interface Campanha2Store {
   videoMaker: AgentBase & { videos: VideoOutput[] }
   diretorArte: AgentBase & { review: ArtReview | null }
   driveImages: string[]
+  propertyPhotos: string[]
+  figmaImages: string[]
 
   _cancel: { v: boolean }
 
@@ -142,6 +147,9 @@ interface Campanha2Store {
   setPresenterImage(img: string | null, name: string | null): void
   addReferenceImage(img: ReferenceImage2): void
   removeReferenceImage(id: string): void
+  addPropertyPhoto(dataUrl: string): void
+  removePropertyPhoto(idx: number): void
+  setFigmaImages(images: string[]): void
   setCampaignName(v: string): void
   setEstruturasCount(n: number): void
   setVariacoesCount(n: number): void
@@ -186,6 +194,8 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
   videoMaker: { ...defaultAgent, videos: [] },
   diretorArte: { ...defaultAgent, review: null },
   driveImages: [],
+  propertyPhotos: [],
+  figmaImages: [],
 
   _cancel: { v: false },
 
@@ -197,6 +207,9 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
   setPresenterImage: (img, name) => set({ presenterImage: img, presenterImageName: name }),
   addReferenceImage: (img) => set((s) => ({ referenceImages: [...s.referenceImages.slice(0, 4), img] })),
   removeReferenceImage: (id) => set((s) => ({ referenceImages: s.referenceImages.filter(i => i.id !== id) })),
+  addPropertyPhoto: (dataUrl) => set((s) => s.propertyPhotos.length < 10 ? { propertyPhotos: [...s.propertyPhotos, dataUrl] } : {}),
+  removePropertyPhoto: (idx) => set((s) => ({ propertyPhotos: s.propertyPhotos.filter((_, i) => i !== idx) })),
+  setFigmaImages: (images) => set({ figmaImages: images }),
   setCampaignName: (v) => set({ campaignName: v }),
   setEstruturasCount: (n) => set({ estruturasCount: Math.min(3, Math.max(1, n)) }),
   setVariacoesCount: (n) => set({ variacoesCount: Math.min(5, Math.max(1, n)) }),
@@ -251,7 +264,8 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
     set({ step: 'agencia' })
 
     const copies = s.redator.copies ?? []
-    const refs = s.referenceImages.map(r => r.dataUrl)
+    // Merge manual reference images + Figma frames — reassigned after auto-fetch if empty
+    let refs = [...s.referenceImages.map(r => r.dataUrl), ...s.figmaImages]
 
     // ── Shared: trigger director once both agents finish ────────────────────
     let directorTriggered = false
@@ -300,8 +314,8 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
           }
         }
       }
-      get()._patch('designer', { creatives, status: 'working', progress: 5, message: driveImageUrls.length > 0 ? 'Usando fotos do Drive...' : 'Gerando imagens com IA...' })
-      get()._log('designer', driveImageUrls.length > 0 ? `${driveImageUrls.length} foto(s) do Drive para ${creatives.length} criativos` : `Iniciando geração IA de ${creatives.length} imagens`)
+      get()._patch('designer', { creatives, status: 'working', progress: 5, message: driveImageUrls.length > 0 ? 'Aplicando fotos nas peças...' : 'Gerando imagens com IA...' })
+      get()._log('designer', driveImageUrls.length > 0 ? `${driveImageUrls.length} foto(s) para ${creatives.length} criativos` : `Iniciando geração IA de ${creatives.length} imagens`)
 
       const total = creatives.length
       let imgDone = 0
@@ -320,6 +334,7 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
             // AI generation fallback
             const r = await apiFetch('/api/campanha/generate-creative', {
               copy: cr.copy, formato: cr.formato, referenceImages: refs, assetsContext: s.assetsContext,
+              produto: get().atendimento.result?.produto ?? '',
             })
             const d = await r.json() as { imageDataUrl?: string }
             img = d.imageDataUrl ?? ''
@@ -350,8 +365,37 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
     }
 
     if (s.incluirImagens) {
-      // Fetch Drive images first (if Drive URL provided), then start designer
+      // Use uploaded property photos → Drive (fallback) → AI generation
       const startDesigner = async () => {
+        // 0. Auto-fetch Figma style reference if not yet loaded
+        if (get().figmaImages.length === 0) {
+          try {
+            get()._log('designer', 'Carregando referências de estilo do Figma...')
+            const fr = await apiFetch('/api/campanha/fetch-figma-assets', { figmaUrl: DEFAULT_FIGMA_URL }, 40000)
+            const fd = await fr.json() as { images?: string[]; count?: number; error?: string }
+            if (fd.images?.length) {
+              set({ figmaImages: fd.images })
+              refs = [...s.referenceImages.map(r => r.dataUrl), ...fd.images]
+              get()._log('designer', `${fd.count} frames Figma carregados como referência de estilo ✓`, 'success')
+            } else {
+              get()._log('designer', fd.error ? `Figma: ${fd.error}` : 'Figma sem frames — continuando', 'info')
+            }
+          } catch (err) {
+            get()._log('designer', `Figma indisponível (${String(err).slice(0, 50)}) — usando referências locais`, 'info')
+          }
+        } else {
+          get()._log('designer', `${get().figmaImages.length} frames Figma já carregados ✓`, 'success')
+          refs = [...s.referenceImages.map(r => r.dataUrl), ...get().figmaImages]
+        }
+
+        // 1. Prefer directly uploaded property photos
+        if (s.propertyPhotos.length > 0) {
+          get()._log('designer', `Usando ${s.propertyPhotos.length} foto(s) do imóvel carregadas`, 'success')
+          await runDesigner(s.propertyPhotos)
+          return
+        }
+
+        // 2. Try Google Drive if URL provided
         let driveImageUrls: string[] = []
         if (s.assetsUrl?.includes('drive.google.com')) {
           try {
@@ -369,6 +413,8 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
             get()._log('designer', `Drive inacessível (${String(err).slice(0, 50)}) — usando geração IA`, 'info')
           }
         }
+
+        // 3. Fallback to AI generation
         await runDesigner(driveImageUrls)
       }
       startDesigner()
@@ -563,19 +609,23 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
         const d = await r.json() as { copies?: CopySet2[]; roteirosNarrado?: Roteiro[]; roteirosApresentadora?: Roteiro[]; legendas?: string[]; error?: string }
         if (!r.ok) throw new Error(d.error)
 
-        const totalCopies = (d.copies ?? []).length
+        const safeCopies = Array.isArray(d.copies) ? d.copies : []
+        const safeRotNarrado = Array.isArray(d.roteirosNarrado) ? d.roteirosNarrado : []
+        const safeRotApres = Array.isArray(d.roteirosApresentadora) ? d.roteirosApresentadora : []
+        const safeLegendas = Array.isArray(d.legendas) ? d.legendas : []
+        const totalCopies = safeCopies.length
         get()._patch('redator', {
           status: 'waiting',
           progress: 100,
           message: `${totalCopies} copies criadas — aguardando aprovação`,
-          copies: d.copies ?? [],
-          roteirosNarrado: d.roteirosNarrado ?? [],
-          roteirosApresentadora: d.roteirosApresentadora ?? [],
-          legendas: d.legendas ?? [],
+          copies: safeCopies,
+          roteirosNarrado: safeRotNarrado,
+          roteirosApresentadora: safeRotApres,
+          legendas: safeLegendas,
         })
         get()._log('redator', `${totalCopies} copies criadas`, 'success')
-        if (d.roteirosNarrado?.length) get()._log('redator', `${d.roteirosNarrado.length} roteiro(s) narrado`, 'success')
-        if (d.roteirosApresentadora?.length) get()._log('redator', `${d.roteirosApresentadora.length} roteiro(s) apresentadora`, 'success')
+        if (safeRotNarrado.length) get()._log('redator', `${safeRotNarrado.length} roteiro(s) narrado`, 'success')
+        if (safeRotApres.length) get()._log('redator', `${safeRotApres.length} roteiro(s) apresentadora`, 'success')
         get()._log('redator', 'Aguardando revisão e aprovação', 'action')
       } catch (err) {
         clearInterval(redProgress)

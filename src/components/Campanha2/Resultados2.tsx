@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useCampanha2Store } from '../../stores/campanha2Store'
+import type { DesignerCreative, VideoOutput } from '../../stores/campanha2Store'
 import { useHistory2Store } from '../../stores/history2Store'
-import { CheckCircle2, AlertCircle, RotateCcw, Play, ArrowLeft, Save, Download, Film } from 'lucide-react'
+import { CheckCircle2, AlertCircle, RotateCcw, Play, ArrowLeft, Save, Download, Film, X, AlertTriangle } from 'lucide-react'
 import { CreativeCard2 } from './CreativeCard2'
 
 export default function Resultados2() {
@@ -13,6 +14,13 @@ export default function Resultados2() {
   const review = diretorArte.review
   const images = designer.creatives.filter(c => c.status === 'done')
   const videos = videoMaker.videos.filter(v => v.status === 'done' || v.videoUrl)
+
+  // Preview modal state
+  const [previewImage, setPreviewImage] = useState<DesignerCreative | null>(null)
+  const [previewVideo, setPreviewVideo] = useState<VideoOutput | null>(null)
+
+  // Restart confirmation state
+  const [confirmingRestart, setConfirmingRestart] = useState(false)
 
   const handleSave = () => {
     const snap = {
@@ -122,20 +130,61 @@ export default function Resultados2() {
             </div>
           )}
 
-          {!review.aprovado && review.problemas.length > 0 && (
+          {review.problemas.length > 0 && (
             <div className="flex flex-col gap-2">
               {review.problemas.map((p, i) => (
                 <div key={i} className="flex gap-2" style={{ fontSize: 12, color: 'var(--foreground)' }}>
                   <span style={{ color: '#EF4444', flexShrink: 0 }}>✗</span> {p}
                 </div>
               ))}
-              <button
-                onClick={() => restartWithFeedback(review.problemas.join('. '))}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl self-start"
-                style={{ backgroundColor: '#EF4444', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
-              >
-                <RotateCcw size={12} /> Reiniciar com correções
-              </button>
+            </div>
+          )}
+
+          {/* Restart option — only shown when score < 70 */}
+          {review.score < 70 && !confirmingRestart && (
+            <button
+              onClick={() => setConfirmingRestart(true)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl self-start"
+              style={{ backgroundColor: '#EF4444', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+            >
+              <RotateCcw size={12} /> Reiniciar com correções (nota {review.score}/100)
+            </button>
+          )}
+
+          {/* Human authorization confirmation */}
+          {review.score < 70 && confirmingRestart && (
+            <div className="flex flex-col gap-3 p-4 rounded-xl" style={{ backgroundColor: 'rgba(239,68,68,0.08)', border: '1.5px solid rgba(239,68,68,0.3)' }}>
+              <div className="flex items-center gap-2">
+                <AlertTriangle size={16} style={{ color: '#EF4444', flexShrink: 0 }} />
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#EF4444' }}>Autorização necessária para reiniciar</span>
+              </div>
+              <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: 0 }}>
+                Isso irá regenerar <strong>todas as imagens, vídeos e copies</strong> incorporando os {review.problemas.length} problema(s) identificado(s) pelo Diretor de Arte. A campanha atual será substituída.
+              </p>
+              {review.sugestoes?.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted-foreground)', textTransform: 'uppercase' }}>O que será corrigido</span>
+                  {review.sugestoes.map((s, i) => (
+                    <div key={i} style={{ fontSize: 12, color: 'var(--foreground)' }}>→ {s}</div>
+                  ))}
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { setConfirmingRestart(false); restartWithFeedback([...review.problemas, ...(review.sugestoes ?? [])].join('. ')) }}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl"
+                  style={{ backgroundColor: '#EF4444', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
+                >
+                  <RotateCcw size={12} /> Confirmar reinício
+                </button>
+                <button
+                  onClick={() => setConfirmingRestart(false)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl"
+                  style={{ backgroundColor: 'var(--secondary)', border: '1px solid var(--border)', color: 'var(--muted-foreground)', cursor: 'pointer', fontSize: 12 }}
+                >
+                  Cancelar
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -185,7 +234,7 @@ export default function Resultados2() {
                     <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}>
                       {eCrs.filter(c => c.formato === '4:5').map(cr => (
                         <div key={cr.id} className="flex flex-col gap-1.5">
-                          <CreativeCard2 creative={cr} copy={cr.copy} compact briefing={atendimento.result} />
+                          <CreativeCard2 creative={cr} copy={cr.copy} compact briefing={atendimento.result} onPreview={() => setPreviewImage(cr)} />
                           <span style={{ fontSize: 10, color: 'var(--muted-foreground)', textAlign: 'center' }}>V{cr.variacao}</span>
                         </div>
                       ))}
@@ -200,7 +249,7 @@ export default function Resultados2() {
                     <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))' }}>
                       {eCrs.filter(c => c.formato === '9:16').map(cr => (
                         <div key={cr.id} className="flex flex-col gap-1.5">
-                          <CreativeCard2 creative={cr} copy={cr.copy} compact briefing={atendimento.result} />
+                          <CreativeCard2 creative={cr} copy={cr.copy} compact briefing={atendimento.result} onPreview={() => setPreviewImage(cr)} />
                           <span style={{ fontSize: 10, color: 'var(--muted-foreground)', textAlign: 'center' }}>V{cr.variacao}</span>
                         </div>
                       ))}
@@ -247,15 +296,13 @@ export default function Resultados2() {
 
                   {v.videoUrl ? (
                     <div className="flex gap-1.5">
-                      <a
-                        href={v.videoUrl}
-                        target="_blank"
-                        rel="noreferrer"
+                      <button
+                        onClick={() => setPreviewVideo(v)}
                         className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl"
-                        style={{ backgroundColor: '#0891B2', color: '#fff', textDecoration: 'none', fontSize: 11, fontWeight: 600 }}
+                        style={{ backgroundColor: '#0891B2', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
                       >
                         <Play size={11} /> Ver
-                      </a>
+                      </button>
                       <button
                         onClick={() => downloadVideo(v.videoUrl, v.id)}
                         className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl"
@@ -327,6 +374,91 @@ export default function Resultados2() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Image preview modal ── */}
+      {previewImage && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(6px)' }}
+          onClick={() => setPreviewImage(null)}
+        >
+          <div
+            className="relative"
+            style={{ maxHeight: '92vh', width: previewImage.formato === '9:16' ? 'auto' : 'min(480px, 90vw)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setPreviewImage(null)}
+              className="absolute -top-3 -right-3 z-10 flex items-center justify-center w-8 h-8 rounded-full"
+              style={{ backgroundColor: '#fff', border: 'none', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.4)' }}
+            >
+              <X size={15} style={{ color: '#111' }} />
+            </button>
+            <div style={{ maxHeight: '88vh', overflow: 'hidden', borderRadius: 12 }}>
+              <CreativeCard2
+                creative={previewImage}
+                copy={previewImage.copy}
+                compact={false}
+                briefing={atendimento.result}
+              />
+            </div>
+            <p style={{ textAlign: 'center', fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 8 }}>
+              {previewImage.formato === '4:5' ? 'Feed 4:5 — 1080×1350px' : 'Reels 9:16 — 1080×1920px'} · E{previewImage.estrutura} V{previewImage.variacao}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Video preview modal ── */}
+      {previewVideo && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(6px)' }}
+          onClick={() => setPreviewVideo(null)}
+        >
+          <div
+            className="flex flex-col gap-3 p-5 rounded-2xl"
+            style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)', maxWidth: 520, width: '100%', maxHeight: '90vh', overflow: 'auto' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p style={{ fontWeight: 700, fontSize: 14, color: 'var(--foreground)', margin: 0 }}>
+                  {previewVideo.tipo === 'narrado' ? 'Vídeo Narrado' : 'Vídeo Apresentadora'} — E{previewVideo.estrutura}
+                </p>
+                <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: '2px 0 0' }}>{previewVideo.roteiro.titulo}</p>
+              </div>
+              <button
+                onClick={() => setPreviewVideo(null)}
+                className="flex items-center justify-center w-8 h-8 rounded-full flex-shrink-0"
+                style={{ backgroundColor: 'var(--secondary)', border: '1px solid var(--border)', cursor: 'pointer' }}
+              >
+                <X size={15} style={{ color: 'var(--foreground)' }} />
+              </button>
+            </div>
+            <video
+              src={previewVideo.videoUrl}
+              controls
+              autoPlay
+              style={{ width: '100%', borderRadius: 8, backgroundColor: '#000' }}
+            />
+            {previewVideo.audioUrl && (
+              <div className="flex flex-col gap-1">
+                <span style={{ fontSize: 10, color: 'var(--muted-foreground)', textTransform: 'uppercase', fontWeight: 600 }}>Narração</span>
+                <audio controls src={previewVideo.audioUrl} style={{ width: '100%', height: 32 }} />
+              </div>
+            )}
+            <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: 0, lineHeight: 1.5 }}>{previewVideo.roteiro.roteiro}</p>
+            <button
+              onClick={() => downloadVideo(previewVideo.videoUrl, previewVideo.id)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl self-start"
+              style={{ backgroundColor: 'var(--secondary)', border: '1px solid var(--border)', cursor: 'pointer', fontSize: 12, color: 'var(--foreground)' }}
+            >
+              <Download size={13} /> Baixar MP4
+            </button>
+          </div>
         </div>
       )}
     </div>
