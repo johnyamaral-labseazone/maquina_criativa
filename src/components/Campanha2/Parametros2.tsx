@@ -1,5 +1,5 @@
 import { useCampanha2Store } from '../../stores/campanha2Store'
-import { ChevronLeft, ChevronRight, Minus, Plus, Image, Video, Tv2, Layers } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Minus, Plus, Image, Video, Tv2, Layers, Film } from 'lucide-react'
 
 function Counter({ value, min, max, onDec, onInc, label, sublabel }: {
   value: number; min: number; max: number; onDec(): void; onInc(): void; label: string; sublabel?: string
@@ -68,16 +68,18 @@ function Toggle({ active, onToggle, icon: Icon, label, sublabel, color, children
 
 export default function Parametros2() {
   const {
-    estruturasCount, variacoesCount, incluirImagens, incluirNarrado, incluirApresentadora,
+    estruturasCount, variacoesCount, narradoCount, apresentadoraCount,
+    incluirImagens, incluirNarrado, incluirApresentadora,
     setEstruturasCount, setVariacoesCount, setIncluirImagens, setIncluirNarrado, setIncluirApresentadora,
+    setNarradoCount, setApresentadoraCount,
     setStep, startAgency, campaignName,
   } = useCampanha2Store()
 
   const nenhum = !incluirImagens && !incluirNarrado && !incluirApresentadora
 
   const totalPecas = (incluirImagens ? estruturasCount * variacoesCount * 2 : 0)
-    + (incluirNarrado ? estruturasCount : 0)
-    + (incluirApresentadora ? estruturasCount : 0)
+    + (incluirNarrado ? estruturasCount * narradoCount : 0)
+    + (incluirApresentadora ? estruturasCount * apresentadoraCount : 0)
 
   return (
     <div className="flex flex-col gap-6 max-w-2xl mx-auto">
@@ -103,14 +105,22 @@ export default function Parametros2() {
         </Toggle>
 
         <Toggle active={incluirNarrado} onToggle={() => setIncluirNarrado(!incluirNarrado)} icon={Video} label="Vídeo narrado" sublabel="Locução com imagens do empreendimento" color="#7C3AED">
+          <div className="grid grid-cols-2 gap-4">
+            <Counter value={estruturasCount} min={1} max={3} onDec={() => setEstruturasCount(estruturasCount - 1)} onInc={() => setEstruturasCount(estruturasCount + 1)} label="Estruturas" sublabel="Abordagens diferentes" />
+            <Counter value={narradoCount} min={1} max={3} onDec={() => setNarradoCount(narradoCount - 1)} onInc={() => setNarradoCount(narradoCount + 1)} label="Vídeos por estrutura" sublabel="Variações" />
+          </div>
           <p className="detail-regular" style={{ color: 'var(--muted-foreground)' }}>
-            Gera {estruturasCount} roteiro(s) com narração em voz da apresentadora.
+            Gera {estruturasCount * narradoCount} vídeo(s) narrado(s) com voz em off.
           </p>
         </Toggle>
 
         <Toggle active={incluirApresentadora} onToggle={() => setIncluirApresentadora(!incluirApresentadora)} icon={Tv2} label="Vídeo apresentadora" sublabel="Avatar da apresentadora Seazone" color="#EA580C">
+          <div className="grid grid-cols-2 gap-4">
+            <Counter value={estruturasCount} min={1} max={3} onDec={() => setEstruturasCount(estruturasCount - 1)} onInc={() => setEstruturasCount(estruturasCount + 1)} label="Estruturas" sublabel="Abordagens diferentes" />
+            <Counter value={apresentadoraCount} min={1} max={3} onDec={() => setApresentadoraCount(apresentadoraCount - 1)} onInc={() => setApresentadoraCount(apresentadoraCount + 1)} label="Vídeos por estrutura" sublabel="Variações" />
+          </div>
           <p className="detail-regular" style={{ color: 'var(--muted-foreground)' }}>
-            Gera {estruturasCount} vídeo(s) com a apresentadora apresentando o empreendimento.
+            Gera {estruturasCount * apresentadoraCount} vídeo(s) com a apresentadora.
           </p>
         </Toggle>
       </div>

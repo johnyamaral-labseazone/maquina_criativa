@@ -119,6 +119,8 @@ interface Campanha2Store {
 
   estruturasCount: number
   variacoesCount: number
+  narradoCount: number
+  apresentadoraCount: number
   incluirImagens: boolean
   incluirNarrado: boolean
   incluirApresentadora: boolean
@@ -145,6 +147,8 @@ interface Campanha2Store {
   setIncluirImagens(v: boolean): void
   setIncluirNarrado(v: boolean): void
   setIncluirApresentadora(v: boolean): void
+  setNarradoCount(n: number): void
+  setApresentadoraCount(n: number): void
   updateCopy(idx: number, fields: Partial<CopySet2>): void
 
   startAgency(): void
@@ -168,6 +172,8 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
   campaignName: '',
 
   estruturasCount: 3,
+  narradoCount: 1,
+  apresentadoraCount: 1,
   variacoesCount: 3,
   incluirImagens: true,
   incluirNarrado: true,
@@ -195,6 +201,8 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
   setIncluirImagens: (v) => set({ incluirImagens: v }),
   setIncluirNarrado: (v) => set({ incluirNarrado: v }),
   setIncluirApresentadora: (v) => set({ incluirApresentadora: v }),
+  setNarradoCount: (n) => set({ narradoCount: Math.min(3, Math.max(1, n)) }),
+  setApresentadoraCount: (n) => set({ apresentadoraCount: Math.min(3, Math.max(1, n)) }),
 
   updateCopy: (idx, fields) => set((s) => {
     const copies = [...(s.redator.copies ?? [])]
@@ -243,12 +251,48 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
     const copies = s.redator.copies ?? []
     const refs = s.referenceImages.map(r => r.dataUrl)
 
-    // --- DESIGNER ---
+    // ── Shared: trigger director once both agents finish ────────────────────
+    let directorTriggered = false
+    async function runDirector() {
+      if (cancel.v || directorTriggered) return
+      const st = get()
+      const dDone = st.designer.status === 'done'
+      const vDone = st.videoMaker.status === 'done'
+      if (!dDone || !vDone) return
+      directorTriggered = true
+
+      get()._patch('diretorArte', { status: 'working', progress: 20, message: 'Revisando tudo...' })
+      get()._log('diretorArte', 'Iniciando revisão dos materiais')
+      try {
+        const stNow = get()
+        const r = await apiFetch('/api/v2/diretor', {
+          briefing: stNow.atendimento.result,
+          copies: stNow.redator.copies,
+          creativesCount: stNow.designer.creatives.filter(c => c.status === 'done').length,
+          videosCount: stNow.videoMaker.videos.filter(v => v.status === 'done').length,
+          incluirImagens: s.incluirImagens,
+          incluirNarrado: s.incluirNarrado,
+          incluirApresentadora: s.incluirApresentadora,
+        })
+        const d = await r.json() as { review?: ArtReview; error?: string }
+        if (!r.ok) throw new Error(d.error)
+        get()._patch('diretorArte', { status: 'done', message: 'Revisão concluída', progress: 100, review: d.review ?? null })
+        get()._log('diretorArte', d.review?.aprovado ? '✓ Campanha aprovada!' : '⚠ Ajustes sugeridos', d.review?.aprovado ? 'success' : 'action')
+        set({ step: 'resultados' })
+      } catch (err) {
+        get()._patch('diretorArte', { status: 'error', message: String(err).slice(0, 120), progress: 0 })
+        get()._log('diretorArte', `Erro: ${err}`, 'error')
+        set({ step: 'resultados' })
+      }
+    }
+
+    // ── DESIGNER ────────────────────────────────────────────────────────────
     if (s.incluirImagens) {
       const creatives: DesignerCreative[] = []
       for (let e = 1; e <= s.estruturasCount; e++) {
         for (let v = 1; v <= s.variacoesCount; v++) {
-          const copy = copies.find(c => c.estrutura === e && c.variacao === v) ?? copies[0]
+          const copy = copies.find(c => c.estrutura === e && c.variacao === v) ?? copies[(e - 1) * s.variacoesCount + (v - 1)] ?? copies[0]
+          if (!copy) continue
           for (const fmt of ['4:5', '9:16'] as const) {
             creatives.push({ id: `e${e}v${v}-${fmt}`, estrutura: e, variacao: v, formato: fmt, imageDataUrl: '', copy, status: 'pending' })
           }
@@ -258,69 +302,66 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
       get()._log('designer', `Iniciando geração de ${creatives.length} imagens`)
 
       const total = creatives.length
-      let done = 0
+      let imgDone = 0
 
       Promise.all(creatives.map(async (cr) => {
         if (cancel.v) return
         set((st) => ({
-          designer: {
-            ...st.designer,
-            creatives: st.designer.creatives.map(c => c.id === cr.id ? { ...c, status: 'generating' } : c),
-          },
+          designer: { ...st.designer, creatives: st.designer.creatives.map(c => c.id === cr.id ? { ...c, status: 'generating' } : c) },
         }))
         try {
           const r = await apiFetch('/api/campanha/generate-creative', {
-            copy: cr.copy,
-            formato: cr.formato,
-            referenceImages: refs,
-            assetsContext: s.assetsContext,
+            copy: cr.copy, formato: cr.formato, referenceImages: refs, assetsContext: s.assetsContext,
           })
-          const d = await r.json() as { imageDataUrl?: string; error?: string }
+          const d = await r.json() as { imageDataUrl?: string }
           const img = d.imageDataUrl ?? ''
-          done++
-          const progress = Math.round((done / total) * 100)
+          imgDone++
           set((st) => ({
             designer: {
               ...st.designer,
-              progress,
-              message: `${done}/${total} imagens geradas`,
+              progress: Math.round((imgDone / total) * 100),
+              message: `${imgDone}/${total} imagens geradas`,
               creatives: st.designer.creatives.map(c => c.id === cr.id ? { ...c, imageDataUrl: img, status: img ? 'done' : 'error' } : c),
             },
           }))
-          get()._log('designer', `E${cr.estrutura}V${cr.variacao} ${cr.formato} — ${img ? '✓' : 'sem imagem'}`, img ? 'success' : 'error')
-        } catch {
-          done++
+          get()._log('designer', `E${cr.estrutura}V${cr.variacao} ${cr.formato} ${img ? '✓' : '✗'}`, img ? 'success' : 'error')
+        } catch (err) {
+          imgDone++
           set((st) => ({
-            designer: {
-              ...st.designer,
-              creatives: st.designer.creatives.map(c => c.id === cr.id ? { ...c, status: 'error' } : c),
-            },
+            designer: { ...st.designer, creatives: st.designer.creatives.map(c => c.id === cr.id ? { ...c, status: 'error' } : c) },
           }))
+          get()._log('designer', `Erro: ${String(err).slice(0, 60)}`, 'error')
         }
       })).then(() => {
         if (cancel.v) return
         get()._patch('designer', { status: 'done', message: 'Imagens entregues', progress: 100 })
-        get()._log('designer', 'Todas as imagens finalizadas', 'success')
-        checkAllDoneAndRunDirector()
+        get()._log('designer', `${imgDone}/${total} imagens finalizadas`, 'success')
+        runDirector()
       })
     } else {
       get()._patch('designer', { status: 'done', message: 'Desativado', progress: 100 })
-      checkAllDoneAndRunDirector()
+      runDirector()
     }
 
-    // --- VIDEO MAKER ---
+    // ── VIDEO MAKER ─────────────────────────────────────────────────────────
     const rotNarrado = s.redator.roteirosNarrado
     const rotApres = s.redator.roteirosApresentadora
     const videos: VideoOutput[] = []
 
-    if (s.incluirNarrado && rotNarrado.length > 0) {
-      for (const rot of rotNarrado) {
-        videos.push({ id: `narrado-e${rot.estrutura}`, tipo: 'narrado', estrutura: rot.estrutura, videoUrl: '', roteiro: rot, status: 'pending' })
+    if (s.incluirNarrado) {
+      for (let e = 1; e <= s.estruturasCount; e++) {
+        for (let v = 1; v <= s.narradoCount; v++) {
+          const rot = rotNarrado.find(r => r.estrutura === e) ?? rotNarrado[e - 1] ?? rotNarrado[0]
+          if (rot) videos.push({ id: `narrado-e${e}v${v}`, tipo: 'narrado', estrutura: e, videoUrl: '', roteiro: rot, status: 'pending' })
+        }
       }
     }
-    if (s.incluirApresentadora && rotApres.length > 0) {
-      for (const rot of rotApres) {
-        videos.push({ id: `apresentadora-e${rot.estrutura}`, tipo: 'apresentadora', estrutura: rot.estrutura, videoUrl: '', roteiro: rot, status: 'pending' })
+    if (s.incluirApresentadora) {
+      for (let e = 1; e <= s.estruturasCount; e++) {
+        for (let v = 1; v <= s.apresentadoraCount; v++) {
+          const rot = rotApres.find(r => r.estrutura === e) ?? rotApres[e - 1] ?? rotApres[0]
+          if (rot) videos.push({ id: `apresentadora-e${e}v${v}`, tipo: 'apresentadora', estrutura: e, videoUrl: '', roteiro: rot, status: 'pending' })
+        }
       }
     }
 
@@ -333,31 +374,26 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
         for (const vid of videos) {
           if (cancel.v) break
           set((st) => ({
-            videoMaker: {
-              ...st.videoMaker,
-              videos: st.videoMaker.videos.map(v => v.id === vid.id ? { ...v, status: 'generating' } : v),
-            },
+            videoMaker: { ...st.videoMaker, videos: st.videoMaker.videos.map(v => v.id === vid.id ? { ...v, status: 'generating' } : v) },
           }))
           get()._log('videoMaker', `Gerando ${vid.tipo} E${vid.estrutura}...`)
           try {
-            // TTS first for narrated
             let audioUrl: string | undefined
-            if (vid.tipo === 'narrado') {
+            if (vid.tipo === 'narrado' && s.redator.roteirosNarrado.length > 0) {
               try {
-                const ttsR = await apiFetch('/api/ai/tts', { text: vid.roteiro.roteiro })
+                const ttsR = await apiFetch('/api/ai/tts', { text: vid.roteiro.roteiro }, 35000)
                 const ttsD = await ttsR.json() as { audioUrl?: string }
                 audioUrl = ttsD.audioUrl
-              } catch { /* no audio */ }
+              } catch { /* skip audio */ }
             }
-            // Video
             const vr = await apiFetch('/api/ai/generate-video', {
-              prompt: vid.roteiro.roteiro,
-              durationSeconds: vid.tipo === 'narrado' ? 30 : 25,
+              prompt: vid.roteiro.roteiro.slice(0, 400),
+              durationSeconds: 10,
               tipo: vid.tipo,
               presenterImage: vid.tipo === 'apresentadora' ? s.presenterImage : undefined,
               assetsContext: s.assetsContext,
             }, 120000)
-            const vd = await vr.json() as { videoUrl?: string }
+            const vd = await vr.json() as { videoUrl?: string; error?: string }
             vidDone++
             set((st) => ({
               videoMaker: {
@@ -367,14 +403,11 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
                 videos: st.videoMaker.videos.map(v => v.id === vid.id ? { ...v, videoUrl: vd.videoUrl ?? '', audioUrl, status: vd.videoUrl ? 'done' : 'error' } : v),
               },
             }))
-            get()._log('videoMaker', `${vid.tipo} E${vid.estrutura} — pronto`, 'success')
+            get()._log('videoMaker', `${vid.tipo} E${vid.estrutura} ${vd.videoUrl ? '✓' : '✗'}`, vd.videoUrl ? 'success' : 'error')
           } catch (err) {
             vidDone++
             set((st) => ({
-              videoMaker: {
-                ...st.videoMaker,
-                videos: st.videoMaker.videos.map(v => v.id === vid.id ? { ...v, status: 'error' } : v),
-              },
+              videoMaker: { ...st.videoMaker, videos: st.videoMaker.videos.map(v => v.id === vid.id ? { ...v, status: 'error' } : v) },
             }))
             get()._log('videoMaker', `Erro: ${String(err).slice(0, 80)}`, 'error')
           }
@@ -382,65 +415,13 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
         if (!cancel.v) {
           get()._patch('videoMaker', { status: 'done', message: 'Vídeos entregues', progress: 100 })
           get()._log('videoMaker', 'Todos os vídeos finalizados', 'success')
-          checkAllDoneAndRunDirector()
+          runDirector()
         }
       }
       runVideosSeq()
     } else {
       get()._patch('videoMaker', { status: 'done', message: 'Desativado', progress: 100 })
-      checkAllDoneAndRunDirector()
-    }
-
-    let designerDoneFlag = !s.incluirImagens
-    let videoMakerDoneFlag = videos.length === 0
-
-    function checkAllDoneAndRunDirector() {
-      const st = get()
-      const dDone = st.designer.status === 'done'
-      const vDone = st.videoMaker.status === 'done'
-      if (!dDone || !vDone) return
-      if (cancel.v) return
       runDirector()
-    }
-
-    // Override: listen via a small polling approach since we can't subscribe here
-    const checkTimer = setInterval(() => {
-      const st = get()
-      if (st._cancel.v) { clearInterval(checkTimer); return }
-      const dDone = st.designer.status === 'done' || !s.incluirImagens
-      const vDone = st.videoMaker.status === 'done' || videos.length === 0
-      if (dDone && vDone && st.diretorArte.status === 'idle') {
-        clearInterval(checkTimer)
-        runDirector()
-      }
-    }, 2000)
-    setTimeout(() => clearInterval(checkTimer), 300000)
-
-    async function runDirector() {
-      if (cancel.v) return
-      const st = get()
-      get()._patch('diretorArte', { status: 'working', progress: 20, message: 'Revisando tudo...' })
-      get()._log('diretorArte', 'Iniciando revisão dos materiais')
-      try {
-        const r = await apiFetch('/api/v2/diretor', {
-          briefing: st.atendimento.result,
-          copies: st.redator.copies,
-          creativesCount: st.designer.creatives.filter(c => c.status === 'done').length,
-          videosCount: st.videoMaker.videos.filter(v => v.status === 'done').length,
-          incluirImagens: s.incluirImagens,
-          incluirNarrado: s.incluirNarrado,
-          incluirApresentadora: s.incluirApresentadora,
-        })
-        const d = await r.json() as { review?: ArtReview; error?: string }
-        if (!r.ok) throw new Error(d.error)
-        get()._patch('diretorArte', { status: 'done', message: 'Revisão concluída', progress: 100, review: d.review ?? null })
-        get()._log('diretorArte', d.review?.aprovado ? '✓ Campanha aprovada!' : '⚠ Ajustes sugeridos', d.review?.aprovado ? 'success' : 'action')
-        set({ step: 'resultados' })
-      } catch (err) {
-        get()._patch('diretorArte', { status: 'error', message: String(err), progress: 0 })
-        get()._log('diretorArte', `Erro: ${err}`, 'error')
-        set({ step: 'resultados' })
-      }
     }
   },
 
@@ -509,6 +490,8 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
           briefing,
           estruturasCount: s.estruturasCount,
           variacoesCount: s.variacoesCount,
+          narradoCount: s.narradoCount,
+          apresentadoraCount: s.apresentadoraCount,
           incluirNarrado: s.incluirNarrado,
           incluirApresentadora: s.incluirApresentadora,
           previousFeedback: get().redator.previousFeedback,

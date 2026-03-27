@@ -132,11 +132,8 @@ async function generateWithFalKling(prompt: string, duration: number, model = 'f
   }) as { data: { video: { url: string } } }
   const videoUrl = result.data?.video?.url
   if (!videoUrl) throw new Error('FAL.AI Kling sem vídeo')
-  const dlRes = await fetch(videoUrl, { signal: AbortSignal.timeout(60000) })
-  const buf = await dlRes.arrayBuffer()
-  const filename = `fal_${Date.now()}.mp4`
-  fs.writeFileSync(path.join(TEMP_VIDEO_DIR, filename), Buffer.from(buf))
-  return `/temp/videos/${filename}`
+  // Return CDN URL directly — avoids /tmp persistence issues on serverless
+  return videoUrl
 }
 
 // ── Google Gemini image helper ────────────────────────────────────────────────
@@ -606,7 +603,7 @@ Retorne APENAS JSON válido (sem markdown):
 
 // ── v2: Redator ───────────────────────────────────────────────────────────────
 app.post('/api/v2/redator', async (req, res) => {
-  const { briefing, estruturasCount = 3, variacoesCount = 3, incluirNarrado, incluirApresentadora, previousFeedback = [], campaignName } = req.body
+  const { briefing, estruturasCount = 3, variacoesCount = 3, narradoCount = 1, apresentadoraCount = 1, incluirNarrado, incluirApresentadora, previousFeedback = [], campaignName } = req.body
   if (!googleAI && !anthropic) { res.status(503).json({ error: 'Nenhuma API de IA configurada' }); return }
 
   const feedbackSection = previousFeedback.length > 0
@@ -622,13 +619,11 @@ app.post('/api/v2/redator', async (req, res) => {
   const estruturaLines = ESTRUTURA_DEFS.slice(0, estruturasCount).join('\n')
   const financialCtx = briefing?.valorInvestimento ? `\nDados financeiros: Investimento ${briefing.valorInvestimento} | Renda ${briefing.rendaMensal}/mês | ROI ${briefing.roi} | Ocupação ${briefing.taxaOcupacao}` : ''
 
+  const totalNarrado = incluirNarrado ? estruturasCount * narradoCount : 0
+  const totalApres = incluirApresentadora ? estruturasCount * apresentadoraCount : 0
   const roteiroSection = (incluirNarrado || incluirApresentadora) ? `
-"roteirosNarrado": [
-  {"estrutura": 1, "titulo": "...", "roteiro": "roteiro completo de 30-35s para narração", "duracao": "30-35s", "legenda": "legenda para redes sociais com emojis e hashtags"}
-],
-"roteirosApresentadora": [
-  {"estrutura": 1, "titulo": "...", "roteiro": "roteiro completo de 20-25s para apresentadora falar olhando para câmera", "duracao": "20-25s", "legenda": "legenda para redes sociais"}
-]` : '"roteirosNarrado": [], "roteirosApresentadora": []'
+"roteirosNarrado": ${incluirNarrado ? `[${Array.from({ length: totalNarrado }, (_, i) => `{"estrutura": ${Math.floor(i / narradoCount) + 1}, "titulo": "...", "roteiro": "roteiro completo de 30-35s para narração voz em off — descreva cenas e texto da locução", "duracao": "30-35s", "legenda": "legenda para redes sociais com emojis e hashtags"}`).join(', ')}]` : '[]'},
+"roteirosApresentadora": ${incluirApresentadora ? `[${Array.from({ length: totalApres }, (_, i) => `{"estrutura": ${Math.floor(i / apresentadoraCount) + 1}, "titulo": "...", "roteiro": "roteiro completo de 20-25s para apresentadora falar direto para câmera de forma natural e envolvente", "duracao": "20-25s", "legenda": "legenda para redes sociais"}`).join(', ')}]` : '[]'}` : '"roteirosNarrado": [], "roteirosApresentadora": []'
 
   const prompt = `${SEAZONE_CONTEXT}${feedbackSection}
 
