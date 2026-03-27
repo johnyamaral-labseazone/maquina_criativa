@@ -905,45 +905,22 @@ app.post('/api/campanha/generate-creative', async (req, res) => {
     let bgDataUrl = ''
     let generator  = 'ai-direct'
 
-    // ── Strategy A: FAL.AI image-to-image with reference ──────────────────────
-    if (hasRef && FAL_KEY) {
-      const refImage = allRefs[0]  // referenciavisual.jpg is first in priority
-      try {
-        console.log('[creative] FAL.AI img2img with reference', userRefs.length > 0 ? '(user upload)' : '(product asset)')
-        bgDataUrl = await generateWithFalImg2Img(bgPrompt, formato ?? '4:5', refImage, 0.72)
-        generator = userRefs.length > 0 ? 'img2img-user-ref' : 'img2img-product-asset'
-        console.log('[creative] ✅ img2img OK')
-      } catch (err) {
-        console.warn('[creative] img2img falhou, tentando styled prompt:', String(err).slice(0, 100))
-      }
-    }
-
-    // ── Strategy B: FAL.AI text prompt enriched with Gemini style analysis ────
-    if (!bgDataUrl && hasRef && googleAI) {
-      const refKey = allRefs[0].slice(0, 60)
-      let styleDesc = styleCache.get(refKey)
-      if (!styleDesc) {
-        styleDesc = await analyzeReferenceStyle(allRefs[0])
-        if (styleDesc) styleCache.set(refKey, styleDesc)
-      }
-      if (styleDesc && FAL_KEY) {
-        try {
-          bgDataUrl = await generateWithFalStyled(bgPrompt, formato ?? '4:5', styleDesc)
-          generator = 'styled-prompt'
-        } catch { /* fallback below */ }
-      }
-    }
-
-    // ── Strategy C: standard generation with product context in prompt ─────────
-    if (!bgDataUrl) {
+    if (hasRef) {
+      // ── Designer uses reference image directly as background ─────────────────
+      // No AI generation — preserves visual identity of the reference piece.
+      bgDataUrl = allRefs[0]
+      generator = 'reference-direct'
+      console.log('[creative] ✅ Usando imagem de referência diretamente como fundo')
+    } else {
+      // No reference — generate with AI
       const productHint = productEntry ? `. Visual style: ${productEntry.designerContext.slice(0, 300)}` : ''
       bgDataUrl = await generateBackground(`${bgPrompt}${productHint}`, formato ?? '4:5').catch(() => '')
-      generator = 'ai-direct'
+      generator = bgDataUrl ? 'ai-direct' : 'none'
     }
 
     res.json({
       imageDataUrl: bgDataUrl,
-      generator: bgDataUrl ? generator : 'none',
+      generator,
       product: productEntry?.triggers[0] ?? null,
       usedProductAssets: productAssets.length > 0,
     })

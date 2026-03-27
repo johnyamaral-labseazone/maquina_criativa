@@ -1228,31 +1228,17 @@ app.post('/api/campanha/generate-creative', async (req, res) => {
     console.log(`[creative] Gerando — formato: ${formato}, refs: ${refs.length}, headline: "${copy?.headline?.slice(0,30)}"`)
 
     let bgDataUrl = ''
+    let generator = 'template+gradient'
 
-    if (hasRef && googleAI) {
-      // ── Reference-based generation: analyze style + generate styled image ──
-      const refKey = refs[0].slice(0, 60) // cache key from first reference
-      let styleDesc = styleCache.get(refKey)
-      if (!styleDesc) {
-        styleDesc = await analyzeReferenceStyle(refs[0])
-        if (styleDesc) styleCache.set(refKey, styleDesc)
-      }
-
-      if (styleDesc) {
-        try {
-          const { base64, mimeType } = await generateWithNanobananaStyled(
-            bgPrompt, formato ?? '4:5', refs[0], styleDesc,
-          )
-          bgDataUrl = `data:${mimeType};base64,${base64}`
-          console.log('[creative] ✅ Styled generation with reference OK')
-        } catch (err) {
-          console.warn('[creative] Styled gen failed, falling back to standard:', String(err).slice(0, 80))
-        }
-      }
-    }
-
-    // Fallback to standard generation if reference-based failed or no ref
-    if (!bgDataUrl) {
+    if (hasRef) {
+      // ── Designer uses reference image directly as background ──────────────────
+      // No AI generation — preserves the visual identity of the reference piece.
+      // The HTML template overlays new copy/text on top, erasing original text.
+      bgDataUrl = refs[0]
+      generator = 'template+reference-direct'
+      console.log('[creative] ✅ Usando imagem de referência diretamente como fundo')
+    } else {
+      // No reference provided — generate background with AI
       bgDataUrl = await Promise.race([
         generateBackground(bgPrompt, formato ?? '4:5'),
         new Promise<string>((_, reject) => setTimeout(() => reject(new Error('Background timeout 120s')), 120000)),
@@ -1260,9 +1246,10 @@ app.post('/api/campanha/generate-creative', async (req, res) => {
         console.warn('[creative] Background falhou, usando gradiente:', String(err).slice(0, 80))
         return ''
       })
+      generator = bgDataUrl ? 'template+ai' : 'template+gradient'
     }
 
-    // 2. Render template with headline, CTA, briefing data etc.
+    // Render HTML template with new copy on top of background
     const vars = buildTemplateVars(briefing, copy, bgDataUrl)
     let imageDataUrl: string
     if (formato === '9:16') {
@@ -1271,8 +1258,8 @@ app.post('/api/campanha/generate-creative', async (req, res) => {
       imageDataUrl = await renderHtmlToImage(fillTemplate('creative-feed.html', vars), 1080, 1350)
     }
 
-    console.log(`[creative] ✅ formato: ${formato}, generator: ${bgDataUrl ? (hasRef ? 'template+styled-ai' : 'template+ai') : 'template+gradient'}`)
-    res.json({ imageDataUrl, generator: bgDataUrl ? (hasRef ? 'template+styled-ai' : 'template+ai') : 'template+gradient' })
+    console.log(`[creative] ✅ formato: ${formato}, generator: ${generator}`)
+    res.json({ imageDataUrl, generator })
   } catch (err) {
     console.error('[generate-creative]', err)
     res.status(500).json({ error: String(err) })
