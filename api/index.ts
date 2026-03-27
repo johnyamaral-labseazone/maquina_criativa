@@ -670,7 +670,7 @@ app.post('/api/campanha/generate-creative', async (req, res) => {
     const refs: string[] = Array.isArray(referenceImages) ? referenceImages : []
     const hasRef = refs.length > 0
     const contextHint = assetsContext ? `, ${assetsContext}` : ''
-    const bgPrompt = `Seazone real estate Brazil, ${copy?.headline || ''}, luxury coastal property aerial drone view, natural sunlight, turquoise ocean${contextHint}, no people, no text overlay, no watermarks`
+    const bgPrompt = `Seazone luxury real estate Florianópolis Brazil, ${copy?.headline || ''}, aerial drone photography of coastal residential property, rooftop pool or beach access, turquoise Atlantic ocean, lush tropical vegetation, modern architecture, golden hour warm natural lighting${contextHint}, professional architectural photography, ultra high quality, no people, no text, no watermarks, no UI elements`
 
     let bgDataUrl = ''
 

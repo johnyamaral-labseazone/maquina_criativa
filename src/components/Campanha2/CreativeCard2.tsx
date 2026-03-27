@@ -52,9 +52,10 @@ export function CreativeCard2({ creative, copy, compact = false, briefing }: Pro
   const scale = compact ? 0.48 : 1
   const px = (n: number) => `${Math.round(n * scale)}px`
 
-  const DARK = '#0A1628'
-  const ROI_BG = '#0D2266'
-  const HIGHLIGHT = '#E53935'
+  // Seazone brand colors (exact)
+  const DARK    = '#00143D'   // Dark navy — primary background
+  const BLUE    = '#0055FF'   // Seazone blue — ROI box, accents
+  const CORAL   = '#FC6058'   // Coral red — highlights, pin dot, underline
 
   return (
     <div className="relative group" style={{ width: '100%' }}>
@@ -74,7 +75,7 @@ export function CreativeCard2({ creative, copy, compact = false, briefing }: Pro
         <div style={{
           position: 'absolute', top: 0, left: 0, right: 0, height: photoH,
           backgroundImage: creative.imageDataUrl ? `url(${creative.imageDataUrl})` : undefined,
-          backgroundColor: '#1a3060',
+          backgroundColor: '#001030',
           backgroundSize: 'cover',
           backgroundPosition: 'center top',
         }} />
@@ -84,7 +85,7 @@ export function CreativeCard2({ creative, copy, compact = false, briefing }: Pro
           position: 'absolute',
           top: `calc(${photoH} - 10%)`,
           left: 0, right: 0, height: '12%',
-          background: `linear-gradient(to bottom, transparent, ${DARK})`,
+          background: `linear-gradient(to bottom, rgba(0,20,61,0) 0%, ${DARK} 100%)`,
           pointerEvents: 'none',
         }} />
 
@@ -130,7 +131,7 @@ export function CreativeCard2({ creative, copy, compact = false, briefing }: Pro
               }}>
                 <div style={{
                   width: px(7), height: px(7), borderRadius: '50%',
-                  backgroundColor: HIGHLIGHT, flexShrink: 0,
+                  backgroundColor: CORAL, flexShrink: 0,
                 }} />
                 <span style={{
                   fontSize: px(8), fontWeight: 700, color: DARK,
@@ -153,13 +154,14 @@ export function CreativeCard2({ creative, copy, compact = false, briefing }: Pro
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: px(7) }}>
             <div style={{
               flexShrink: 0,
-              border: `${px(1.5)} solid rgba(255,255,255,0.35)`,
+              backgroundColor: 'rgba(255,255,255,0.08)',
+              border: `${px(1.5)} solid rgba(255,255,255,0.25)`,
               borderRadius: px(5),
-              padding: `${px(3)} ${px(7)}`,
+              padding: `${px(3)} ${px(8)}`,
             }}>
               <span style={{
-                fontSize: px(7), fontWeight: 800, color: '#fff',
-                letterSpacing: '0.08em', textTransform: 'uppercase',
+                fontSize: px(7), fontWeight: 700, color: '#fff',
+                letterSpacing: '0.07em', textTransform: 'uppercase',
                 whiteSpace: 'nowrap',
               }}>
                 {copy.cta || 'SAIBA MAIS'}
@@ -179,7 +181,7 @@ export function CreativeCard2({ creative, copy, compact = false, briefing }: Pro
           {hasRoi && (
             <div style={{ display: 'flex', alignItems: 'center', gap: px(10) }}>
               <div style={{
-                backgroundColor: ROI_BG,
+                backgroundColor: BLUE,
                 borderRadius: px(7),
                 padding: `${px(6)} ${px(10)}`,
                 flexShrink: 0,
@@ -202,7 +204,7 @@ export function CreativeCard2({ creative, copy, compact = false, briefing }: Pro
               <p style={{ fontSize: px(9), color: 'rgba(255,255,255,0.9)', margin: 0, lineHeight: 1.4 }}>
                 de{' '}
                 <span style={{
-                  backgroundColor: HIGHLIGHT,
+                  backgroundColor: CORAL,
                   color: '#fff',
                   padding: `${px(1)} ${px(3)}`,
                   borderRadius: px(2),
@@ -234,6 +236,12 @@ export function CreativeCard2({ creative, copy, compact = false, briefing }: Pro
             </p>
           )}
         </div>
+
+        {/* Coral accent bar at very bottom (Seazone brand signature) */}
+        <div style={{
+          position: 'absolute', bottom: 0, left: 0, right: 0,
+          height: px(3), backgroundColor: CORAL,
+        }} />
       </div>
 
       {/* Hover overlay with download button */}
