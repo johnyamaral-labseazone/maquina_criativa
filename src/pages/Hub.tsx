@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Logo } from '../imports/Logo1'
-import { Lock, ArrowRight, Layers, MessageSquare, Eye, EyeOff, Sparkles, Bot, Construction } from 'lucide-react'
+import { Lock, ArrowRight, MessageSquare, Eye, EyeOff, Bot, Construction } from 'lucide-react'
 
 const PASSWORD = 'seazonedesign'
 const SESSION_KEY = 'hub_auth'
@@ -23,21 +23,6 @@ const APPS = [
     destaque: true,
   },
   {
-    id: 'variacoes',
-    path: '/variacoes',
-    title: 'Automação de variações',
-    description: 'Gere criativos de feed e story com múltiplas estruturas e variações automaticamente.',
-    icon: Layers,
-    accent: 'var(--primary)',
-    accentSolid: '#0055FF',
-    accentLight: 'rgba(0,85,255,0.06)',
-    accentBorder: 'rgba(0,85,255,0.12)',
-    formats: ['Feed 4:5', 'Story 9:16'],
-    badge: 'Variações',
-    status: 'stable' as const,
-    destaque: false,
-  },
-  {
     id: 'whatsapp',
     path: '/whatsapp',
     title: 'Estáticos WhatsApp',
@@ -50,21 +35,6 @@ const APPS = [
     formats: ['WhatsApp 1:1', 'Story 9:16'],
     badge: 'WhatsApp',
     status: 'stable' as const,
-    destaque: false,
-  },
-  {
-    id: 'campanha',
-    path: '/campanha',
-    title: 'Gerador de Campanhas IA',
-    description: 'Envie seu briefing e a IA cria anúncios, variações e vídeos automaticamente.',
-    icon: Sparkles,
-    accent: '#7C3AED',
-    accentSolid: '#7C3AED',
-    accentLight: 'rgba(124,58,237,0.06)',
-    accentBorder: 'rgba(124,58,237,0.15)',
-    formats: ['Feed 4:5', 'Story 9:16', 'Vídeo'],
-    badge: 'IA Geração',
-    status: 'beta' as const,
     destaque: false,
   },
 ]
@@ -222,7 +192,7 @@ export default function Hub() {
             {APPS.map((app) => {
               const Icon = app.icon
               const isDev = app.status === 'dev'
-              const isBeta = app.status === 'beta'
+              const isBeta = (app.status as string) === 'beta'
               return (
                 <button
                   key={app.id}
