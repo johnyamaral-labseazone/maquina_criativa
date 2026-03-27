@@ -144,7 +144,7 @@ function aspectHint(r: string) {
 async function generateWithGemini(prompt: string, aspectRatio: string): Promise<{ base64: string; mimeType: string }> {
   if (!googleAI) throw new Error('GOOGLE_API_KEY não configurada')
   const fullPrompt = `${prompt}, ${aspectHint(aspectRatio)}`
-  for (const model of ['gemini-2.5-flash-exp-image-generation', 'gemini-2.5-flash-thinking-exp']) {
+  for (const model of ['gemini-2.0-flash-exp-image-generation', 'gemini-2.0-flash-preview-image-generation']) {
     try {
       const response = await googleAI.models.generateContent({
         model, contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
@@ -202,9 +202,34 @@ async function replicateToBase64(output: unknown): Promise<string> {
   throw new Error('Formato Replicate desconhecido')
 }
 
-// ── Background image generator — FAL.AI primary (Gemini image gen removed) ───
+// ── SVG gradient fallback (always works, Seazone branded) ─────────────────────
+function generateSvgFallback(prompt: string, formato: string): string {
+  const isStory = formato === '9:16'
+  const w = 1080, h = isStory ? 1920 : 1350
+  const seed = prompt.length % 3
+  const colors = [
+    ['#0a1628', '#1a3a6e', '#0055FF'],
+    ['#0f0c29', '#302b63', '#7C3AED'],
+    ['#1a0a0a', '#3d1c0e', '#EA580C'],
+  ][seed]
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="${colors[0]}"/><stop offset="50%" stop-color="${colors[1]}"/><stop offset="100%" stop-color="${colors[2]}" stop-opacity="0.8"/></linearGradient></defs><rect width="${w}" height="${h}" fill="url(#g)"/></svg>`
+  return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`
+}
+
+// ── Background image generator — Gemini primary ───────────────────────────────
 async function generateBackground(prompt: string, formato: string): Promise<string> {
-  // 1. FAL.AI Flux Schnell — primary (fast, reliable)
+  // 1. Gemini image gen — primary (free with GOOGLE_API_KEY)
+  if (googleAI) {
+    try {
+      console.log(`[bg] Gemini image gen — formato: ${formato}`)
+      const { base64, mimeType } = await generateWithGemini(prompt, formato)
+      console.log('[bg] ✅ Gemini OK')
+      return `data:${mimeType};base64,${base64}`
+    } catch (err) {
+      console.warn('[bg] Gemini falhou:', String(err).slice(0, 120))
+    }
+  }
+  // 2. FAL.AI Flux Schnell
   if (FAL_KEY) {
     try {
       console.log(`[bg] FAL.AI Flux Schnell — formato: ${formato}`)
@@ -212,22 +237,21 @@ async function generateBackground(prompt: string, formato: string): Promise<stri
       console.log('[bg] ✅ FAL.AI OK')
       return img
     } catch (err) {
-      console.warn('[bg] FAL.AI Flux Schnell falhou, tentando Flux Dev...', String(err).slice(0, 100))
+      console.warn('[bg] FAL.AI falhou:', String(err).slice(0, 120))
     }
-    // 2. FAL.AI Flux Dev — slightly slower but higher quality fallback
+  }
+  // 3. Freepik Mystic
+  if (FREEPIK_KEY) {
     try {
-      const img = await generateWithFalFlux(prompt, formato, 'fal-ai/flux/dev')
-      console.log('[bg] ✅ FAL.AI Flux Dev OK')
+      console.log('[bg] Freepik Mystic...')
+      const img = await generateWithMystic(prompt, formato)
+      console.log('[bg] ✅ Freepik OK')
       return img
     } catch (err) {
-      console.warn('[bg] FAL.AI Flux Dev falhou:', String(err).slice(0, 100))
+      console.warn('[bg] Freepik falhou:', String(err).slice(0, 120))
     }
   }
-  // 3. Freepik Mystic — if key available
-  if (FREEPIK_KEY) {
-    try { return await generateWithMystic(prompt, formato) } catch { /* fallthrough */ }
-  }
-  // 4. Replicate Flux — if key available
+  // 4. Replicate Flux
   if (replicate) {
     try {
       const output = await replicate.run('black-forest-labs/flux-schnell', {
@@ -236,8 +260,9 @@ async function generateBackground(prompt: string, formato: string): Promise<stri
       return `data:image/jpeg;base64,${await replicateToBase64(output)}`
     } catch { /* fallthrough */ }
   }
-  console.error('[bg] ❌ Nenhum gerador disponível — FAL_KEY configurado?', !!FAL_KEY)
-  return ''
+  // 5. SVG gradient fallback — always returns something
+  console.warn('[bg] ⚠️ Todos os geradores falharam — usando fallback SVG')
+  return generateSvgFallback(prompt, formato)
 }
 
 // ── ElevenLabs helper ─────────────────────────────────────────────────────────
