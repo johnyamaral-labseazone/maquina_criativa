@@ -1109,51 +1109,44 @@ app.post('/api/campanha/render-creative', async (req, res) => {
 })
 
 // ── Generate background photo (AI) then render with template ────────────────
-// ── Helper: generate background image (Nanobanana → FAL.AI → Mystic → Flux) ──
-// Priority: Nanobanana (fast), then FAL.AI Flux, then Mystic, then Replicate Flux
+// ── Helper: generate background image (FAL.AI → Replicate → Mystic) ──────────
+// Priority: FAL.AI Flux Dev (quality), then Replicate Flux, then Freepik Mystic
 async function generateBackground(prompt: string, formato: string): Promise<string> {
-  // 1. Nanobanana (Gemini image gen) — fast single API call ~5-10s
-  if (googleAI) {
-    try {
-      const { base64, mimeType } = await generateWithNanobanana(prompt, formato)
-      console.log('[bg] ✅ Nanobanana OK')
-      return `data:${mimeType};base64,${base64}`
-    } catch (err) {
-      console.warn('[bg] Nanobanana falhou:', String(err).slice(0, 120))
-    }
-  }
-  // 2. FAL.AI Flux Schnell — fast, high quality
+  // 1. FAL.AI Flux Dev — primary, high quality
   if (FAL_KEY) {
     try {
-      const result = await generateWithFalFlux(prompt, formato, 'fal-ai/flux/schnell')
-      console.log('[bg] ✅ FAL.AI Flux OK')
+      const result = await generateWithFalFlux(prompt, formato, 'fal-ai/flux/dev')
+      console.log('[bg] ✅ FAL.AI Flux Dev OK')
       return result
     } catch (err) {
-      console.warn('[bg] FAL.AI Flux falhou:', String(err).slice(0, 100))
+      console.warn('[bg] FAL.AI Flux Dev falhou:', String(err).slice(0, 100))
     }
   }
-  // 3. Freepik Mystic — async poll, up to ~40s
-  if (FREEPIK_KEY) {
-    try {
-      return await generateWithMystic(prompt, formato)
-    } catch (err) {
-      console.warn('[bg] Mystic falhou:', String(err).slice(0, 100))
-    }
-  }
-  // 4. Flux Schnell (Replicate) — fallback
+  // 2. Replicate Flux Schnell — second option
   if (replicate) {
     try {
       const ar = formato === '9:16' ? '9:16' : formato === '1:1' ? '1:1' : '4:5'
       const output = await replicate.run('black-forest-labs/flux-schnell', {
         input: { prompt, aspect_ratio: ar, output_format: 'jpg', output_quality: 80, num_outputs: 1 },
       })
+      console.log('[bg] ✅ Replicate Flux OK')
       return `data:image/jpeg;base64,${await replicateOutputToBase64(output)}`
     } catch (err) {
-      console.warn('[bg] Flux falhou:', String(err).slice(0, 100))
+      console.warn('[bg] Replicate Flux falhou:', String(err).slice(0, 100))
+    }
+  }
+  // 3. Freepik Mystic — fallback
+  if (FREEPIK_KEY) {
+    try {
+      const result = await generateWithMystic(prompt, formato)
+      console.log('[bg] ✅ Freepik Mystic OK')
+      return result
+    } catch (err) {
+      console.warn('[bg] Mystic falhou:', String(err).slice(0, 100))
     }
   }
   console.warn('[bg] Nenhum gerador disponível — usando gradiente')
-  return '' // template renders with gradient-only background
+  return ''
 }
 
 // ── Helper: build template vars from briefing + copy ─────────────────────────

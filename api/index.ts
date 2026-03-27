@@ -308,31 +308,34 @@ function generateSvgFallback(prompt: string, formato: string): string {
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`
 }
 
-// ── Background image generator — Gemini primary ───────────────────────────────
+// ── Background image generator — FAL.AI primary ───────────────────────────────
+// Priority: FAL.AI Flux Dev → Replicate → Freepik Mystic
 async function generateBackground(prompt: string, formato: string): Promise<string> {
-  // 1. Gemini image gen — primary (free with GOOGLE_API_KEY)
-  if (googleAI) {
-    try {
-      console.log(`[bg] Gemini image gen — formato: ${formato}`)
-      const { base64, mimeType } = await generateWithGemini(prompt, formato)
-      console.log('[bg] ✅ Gemini OK')
-      return `data:${mimeType};base64,${base64}`
-    } catch (err) {
-      console.warn('[bg] Gemini falhou:', String(err).slice(0, 120))
-    }
-  }
-  // 2. FAL.AI Flux Schnell
+  // 1. FAL.AI Flux Dev — primary, high quality
   if (FAL_KEY) {
     try {
-      console.log(`[bg] FAL.AI Flux Schnell — formato: ${formato}`)
-      const img = await generateWithFalFlux(prompt, formato, 'fal-ai/flux/schnell')
-      console.log('[bg] ✅ FAL.AI OK')
+      console.log(`[bg] FAL.AI Flux Dev — formato: ${formato}`)
+      const img = await generateWithFalFlux(prompt, formato, 'fal-ai/flux/dev')
+      console.log('[bg] ✅ FAL.AI Flux Dev OK')
       return img
     } catch (err) {
       console.warn('[bg] FAL.AI falhou:', String(err).slice(0, 120))
     }
   }
-  // 3. Freepik Mystic
+  // 2. Replicate Flux Schnell
+  if (replicate) {
+    try {
+      console.log(`[bg] Replicate Flux — formato: ${formato}`)
+      const output = await replicate.run('black-forest-labs/flux-schnell', {
+        input: { prompt, aspect_ratio: formato === '9:16' ? '9:16' : formato === '1:1' ? '1:1' : '4:5', output_format: 'jpg', output_quality: 80, num_outputs: 1 },
+      })
+      console.log('[bg] ✅ Replicate OK')
+      return `data:image/jpeg;base64,${await replicateToBase64(output)}`
+    } catch (err) {
+      console.warn('[bg] Replicate falhou:', String(err).slice(0, 120))
+    }
+  }
+  // 3. Freepik Mystic — fallback
   if (FREEPIK_KEY) {
     try {
       console.log('[bg] Freepik Mystic...')
@@ -343,16 +346,7 @@ async function generateBackground(prompt: string, formato: string): Promise<stri
       console.warn('[bg] Freepik falhou:', String(err).slice(0, 120))
     }
   }
-  // 4. Replicate Flux
-  if (replicate) {
-    try {
-      const output = await replicate.run('black-forest-labs/flux-schnell', {
-        input: { prompt, aspect_ratio: formato === '9:16' ? '9:16' : formato === '1:1' ? '1:1' : '4:5', output_format: 'jpg', output_quality: 80, num_outputs: 1 },
-      })
-      return `data:image/jpeg;base64,${await replicateToBase64(output)}`
-    } catch { /* fallthrough */ }
-  }
-  // 5. SVG gradient fallback — always returns something
+  // 4. SVG gradient fallback — always returns something
   console.warn('[bg] ⚠️ Todos os geradores falharam — usando fallback SVG')
   return generateSvgFallback(prompt, formato)
 }
