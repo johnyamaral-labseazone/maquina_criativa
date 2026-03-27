@@ -404,6 +404,22 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
       get()._log('videoMaker', `Iniciando ${videos.length} vídeo(s)`)
 
       let vidDone = 0
+
+      // Poll FAL.AI async job until done or timeout (max ~4 min)
+      const pollVideo = async (requestId: string, model: string): Promise<string> => {
+        for (let i = 0; i < 24; i++) { // 24 × 10s = 4 min
+          if (cancel.v) throw new Error('Cancelado')
+          await new Promise(r => setTimeout(r, 10000))
+          const pr = await apiFetch('/api/ai/poll-video', { requestId, model }, 15000)
+          const pd = await pr.json() as { status: string; videoUrl?: string; error?: string }
+          if (pd.status === 'done' && pd.videoUrl) return pd.videoUrl
+          if (pd.status === 'error') throw new Error(pd.error ?? 'FAL job falhou')
+          // still processing — update log every 30s
+          if (i % 3 === 2) get()._log('videoMaker', `Processando... ${(i + 1) * 10}s`)
+        }
+        throw new Error('Timeout aguardando vídeo (4min)')
+      }
+
       const runVideosSeq = async () => {
         for (const vid of videos) {
           if (cancel.v) break
@@ -420,24 +436,34 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
                 audioUrl = ttsD.audioUrl
               } catch { /* skip audio */ }
             }
-            const vr = await apiFetch('/api/ai/generate-video', {
+
+            // Start async FAL.AI job (returns immediately)
+            let videoUrl = ''
+            const startR = await apiFetch('/api/ai/start-video', {
               prompt: vid.roteiro.roteiro.slice(0, 400),
               durationSeconds: 10,
               tipo: vid.tipo,
-              presenterImage: vid.tipo === 'apresentadora' ? s.presenterImage : undefined,
               assetsContext: s.assetsContext,
-            }, 120000)
-            const vd = await vr.json() as { videoUrl?: string; error?: string }
+            }, 15000)
+            const startD = await startR.json() as { requestId?: string; model?: string; error?: string }
+
+            if (startD.requestId) {
+              get()._log('videoMaker', `Job iniciado (${startD.requestId.slice(0, 8)}...)`)
+              videoUrl = await pollVideo(startD.requestId, startD.model ?? '')
+            } else {
+              throw new Error(startD.error ?? 'Falha ao iniciar job')
+            }
+
             vidDone++
             set((st) => ({
               videoMaker: {
                 ...st.videoMaker,
                 progress: Math.round((vidDone / videos.length) * 100),
                 message: `${vidDone}/${videos.length} vídeos prontos`,
-                videos: st.videoMaker.videos.map(v => v.id === vid.id ? { ...v, videoUrl: vd.videoUrl ?? '', audioUrl, status: vd.videoUrl ? 'done' : 'error' } : v),
+                videos: st.videoMaker.videos.map(v => v.id === vid.id ? { ...v, videoUrl, audioUrl, status: videoUrl ? 'done' : 'error' } : v),
               },
             }))
-            get()._log('videoMaker', `${vid.tipo} E${vid.estrutura} ${vd.videoUrl ? '✓' : '✗'}`, vd.videoUrl ? 'success' : 'error')
+            get()._log('videoMaker', `${vid.tipo} E${vid.estrutura} ${videoUrl ? '✓' : '✗'}`, videoUrl ? 'success' : 'error')
           } catch (err) {
             vidDone++
             set((st) => ({

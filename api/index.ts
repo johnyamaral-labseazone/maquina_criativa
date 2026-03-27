@@ -489,6 +489,46 @@ app.post('/api/ai/generate-video-fal', async (req, res) => {
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
 
+// ── Async video: start job (returns requestId immediately, no timeout risk) ───
+const VIDEO_MODEL = 'fal-ai/kling-video/v2.1/standard/text-to-video'
+app.post('/api/ai/start-video', async (req, res) => {
+  if (!FAL_KEY) { res.status(503).json({ error: 'FAL_KEY não configurada' }); return }
+  const { prompt, durationSeconds = 5, tipo = 'narrado', assetsContext } = req.body
+  const narradoContext = assetsContext ? ` ${assetsContext}` : ''
+  const basePrompt = tipo === 'apresentadora'
+    ? `${prompt}, professional presenter speaking to camera, Seazone real estate, coastal property backdrop, cinematic, no text overlay`
+    : `${prompt}${narradoContext}, professional real estate cinematic footage, coastal property, natural lighting, no people, no text overlay`
+  try {
+    const { request_id } = await fal.queue.submit(VIDEO_MODEL, {
+      input: { prompt: basePrompt, duration: String(durationSeconds <= 5 ? 5 : 10), aspect_ratio: '9:16', negative_prompt: 'people, text, watermarks, low quality' },
+    }) as { request_id: string }
+    console.log(`[video-async] job iniciado: ${request_id}`)
+    res.json({ requestId: request_id, model: VIDEO_MODEL })
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
+// ── Async video: poll job status / retrieve result ────────────────────────────
+app.post('/api/ai/poll-video', async (req, res) => {
+  if (!FAL_KEY) { res.status(503).json({ error: 'FAL_KEY não configurada' }); return }
+  const { requestId, model = VIDEO_MODEL } = req.body
+  if (!requestId) { res.status(400).json({ error: 'requestId obrigatório' }); return }
+  try {
+    const status = await fal.queue.status(model, { requestId, logs: false }) as { status: string }
+    console.log(`[video-async] ${requestId} → ${status.status}`)
+    if (status.status === 'COMPLETED') {
+      const result = await fal.queue.result(model, { requestId }) as { data: { video: { url: string } } }
+      const videoUrl = result.data?.video?.url
+      if (!videoUrl) { res.status(500).json({ error: 'FAL sem URL no resultado' }); return }
+      res.json({ status: 'done', videoUrl })
+    } else if (status.status === 'FAILED') {
+      res.json({ status: 'error', error: 'FAL.AI job falhou' })
+    } else {
+      // IN_QUEUE or IN_PROGRESS
+      res.json({ status: 'processing' })
+    }
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
 // ElevenLabs TTS
 app.post('/api/ai/tts', async (req, res) => {
   if (!ELEVENLABS_KEY) { res.status(503).json({ error: 'ELEVENLABS_API_KEY não configurada' }); return }
