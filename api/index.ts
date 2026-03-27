@@ -271,9 +271,9 @@ function generateSvgFallback(prompt: string, formato: string): string {
   const w = 1080, h = isStory ? 1920 : 1350
   const seed = prompt.length % 3
   const colors = [
-    ['#0a1628', '#1a3a6e', '#0055FF'],
-    ['#0f0c29', '#302b63', '#7C3AED'],
-    ['#1a0a0a', '#3d1c0e', '#EA580C'],
+    ['#00143D', '#002a7a', '#0055FF'],
+    ['#00143D', '#001a50', '#0055FF'],
+    ['#00143D', '#001530', '#0055FF'],
   ][seed]
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="${colors[0]}"/><stop offset="50%" stop-color="${colors[1]}"/><stop offset="100%" stop-color="${colors[2]}" stop-opacity="0.8"/></linearGradient></defs><rect width="${w}" height="${h}" fill="url(#g)"/></svg>`
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`
@@ -353,7 +353,13 @@ Empresa líder em gestão de imóveis para temporada no Brasil.
 Tom de comunicação: profissional, orientado a resultados financeiros, confiável, próximo.
 Público-alvo: investidores imobiliários buscando renda passiva e alta ocupação.
 Diferenciais: gestão completa 360°, tecnologia proprietária, transparência total, maximização de receita.
-Identidade visual: Azul (#0055FF, #1C398E), Verde (#5EA500), tipografia Helvetica, estilo clean e premium.
+IDENTIDADE VISUAL SEAZONE (aplicar em todos os criativos):
+- Cores: Azul #0055FF (caixa ROI, destaques, elementos interativos), Navy #00143D (fundo do painel), Coral #FC6058 (pin de localização, highlight "retorno líquido", barra de assinatura)
+- Tipografia: Helvetica — pesos Thin, Light, Medium, Bold. Nunca usar outras fontes.
+- Layout padrão: foto aérea do imóvel na metade superior → painel navy escuro (#00143D) na metade inferior
+- Hierarquia do painel (cima→baixo): pílula branca com localização (ponto coral + texto navy) + logo "seazone" → badge CTA (borda branca translúcida) + copy body → caixa ROI azul (#0055FF) com % grande + "de retorno líquido" (highlight coral) + período → disclaimer legal
+- Assinatura de marca: barra coral #FC6058 de 3px na base de toda peça
+- Pílulas e badges: fundo branco + texto navy (localização) ou fundo translúcido + texto branco (status/CTA)
 
 ELEMENTOS ESTRITAMENTE PROIBIDOS NOS CRIATIVOS:
 1. Mencionar distância exata da praia (metros, minutos, tempo de caminhada)
