@@ -1,12 +1,27 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Logo } from '../imports/Logo1'
-import { Lock, ArrowRight, Layers, MessageSquare, Eye, EyeOff, Sparkles } from 'lucide-react'
+import { Lock, ArrowRight, Layers, MessageSquare, Eye, EyeOff, Sparkles, Bot, Construction } from 'lucide-react'
 
 const PASSWORD = 'seazonedesign'
 const SESSION_KEY = 'hub_auth'
 
 const APPS = [
+  {
+    id: 'campanha2',
+    path: '/campanha2',
+    title: 'Campanha 2.0 — Agentes IA',
+    description: 'Equipe de agentes IA (Atendimento, Redator, Designer, Vídeo Maker, Diretor de Arte) trabalha junto para criar a campanha completa a partir do briefing.',
+    icon: Bot,
+    accent: 'linear-gradient(135deg, #7C3AED, #EA580C)',
+    accentSolid: '#7C3AED',
+    accentLight: 'rgba(124,58,237,0.07)',
+    accentBorder: 'rgba(124,58,237,0.18)',
+    formats: ['Feed 4:5', 'Story 9:16', 'Vídeo Narrado', 'Vídeo Apresentadora'],
+    badge: 'Novo',
+    status: 'dev' as const,
+    destaque: true,
+  },
   {
     id: 'variacoes',
     path: '/variacoes',
@@ -14,11 +29,13 @@ const APPS = [
     description: 'Gere criativos de feed e story com múltiplas estruturas e variações automaticamente.',
     icon: Layers,
     accent: 'var(--primary)',
+    accentSolid: '#0055FF',
     accentLight: 'rgba(0,85,255,0.06)',
     accentBorder: 'rgba(0,85,255,0.12)',
     formats: ['Feed 4:5', 'Story 9:16'],
     badge: 'Variações',
-    beta: false,
+    status: 'stable' as const,
+    destaque: false,
   },
   {
     id: 'whatsapp',
@@ -27,11 +44,13 @@ const APPS = [
     description: 'Crie uma arte de WhatsApp dentro da identidade Seazone.',
     icon: MessageSquare,
     accent: 'var(--cores-verde-600, #5EA500)',
+    accentSolid: '#5EA500',
     accentLight: 'rgba(94,165,0,0.06)',
     accentBorder: 'rgba(94,165,0,0.12)',
     formats: ['WhatsApp 1:1', 'Story 9:16'],
     badge: 'WhatsApp',
-    beta: false,
+    status: 'stable' as const,
+    destaque: false,
   },
   {
     id: 'campanha',
@@ -40,11 +59,13 @@ const APPS = [
     description: 'Envie seu briefing e a IA cria anúncios, variações e vídeos automaticamente.',
     icon: Sparkles,
     accent: '#7C3AED',
+    accentSolid: '#7C3AED',
     accentLight: 'rgba(124,58,237,0.06)',
     accentBorder: 'rgba(124,58,237,0.15)',
     formats: ['Feed 4:5', 'Story 9:16', 'Vídeo'],
     badge: 'IA Geração',
-    beta: true,
+    status: 'beta' as const,
+    destaque: false,
   },
 ]
 
@@ -197,91 +218,110 @@ export default function Hub() {
           </div>
 
           {/* App cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="flex flex-col gap-5">
             {APPS.map((app) => {
               const Icon = app.icon
+              const isDev = app.status === 'dev'
+              const isBeta = app.status === 'beta'
               return (
                 <button
                   key={app.id}
                   onClick={() => navigate(app.path)}
-                  className="text-left rounded-2xl overflow-hidden transition-all hover-lift active:scale-[0.98]"
+                  className={`text-left rounded-2xl overflow-hidden transition-all hover-lift active:scale-[0.98] ${app.destaque ? 'w-full' : ''}`}
                   style={{
                     backgroundColor: 'var(--card)',
-                    border: '1px solid var(--border)',
-                    boxShadow: 'var(--elevation-sm)',
+                    border: app.destaque ? '2px solid rgba(124,58,237,0.35)' : '1px solid var(--border)',
+                    boxShadow: app.destaque ? '0 8px 32px rgba(124,58,237,0.15)' : 'var(--elevation-sm)',
                     cursor: 'pointer',
+                    position: 'relative',
                   }}
                 >
-                  {/* Card header */}
-                  <div
-                    className="px-6 pt-6 pb-5"
-                    style={{
-                      background: `linear-gradient(135deg, ${app.accentLight} 0%, transparent 100%)`,
-                      borderBottom: `1px solid ${app.accentBorder}`,
-                    }}
-                  >
-                    <div className="flex items-start justify-between gap-3 mb-3">
-                      <span
-                        className="w-12 h-12 flex items-center justify-center rounded-2xl flex-shrink-0"
-                        style={{ backgroundColor: app.accent, color: '#fff' }}
-                      >
-                        <Icon size={22} />
-                      </span>
-                      <div className="flex items-center gap-2">
-                        {app.beta && (
-                          <span
-                            className="detail-medium px-2.5 py-1 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: 'rgba(124,58,237,0.1)', color: '#7C3AED', border: '1px solid rgba(124,58,237,0.2)', fontSize: 10 }}
-                          >
-                            Beta
-                          </span>
-                        )}
-                        <span
-                          className="detail-medium px-3 py-1 rounded-full flex-shrink-0"
-                          style={{
-                            backgroundColor: app.accentLight,
-                            color: app.accent,
-                            border: `1px solid ${app.accentBorder}`,
-                          }}
-                        >
-                          {app.badge}
-                        </span>
-                      </div>
-                    </div>
-                    <h2 style={{ color: 'var(--foreground)', margin: 0, fontSize: '1.1rem', fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontWeight: 700 }}>
-                      {app.title}
-                    </h2>
-                  </div>
+                  {/* Destaque top gradient bar */}
+                  {app.destaque && (
+                    <div style={{ height: 3, background: 'linear-gradient(90deg, #7C3AED, #EA580C)', width: '100%' }} />
+                  )}
 
-                  {/* Card body */}
-                  <div className="px-6 py-4 flex flex-col gap-4">
-                    <span className="body-regular" style={{ color: 'var(--muted-foreground)' }}>
-                      {app.description}
-                    </span>
-
-                    {/* Formats */}
-                    <div className="flex gap-2 flex-wrap">
-                      {app.formats.map((fmt) => (
-                        <span
-                          key={fmt}
-                          className="detail-medium px-2.5 py-1 rounded-full"
-                          style={{
-                            backgroundColor: 'var(--secondary)',
-                            color: 'var(--secondary-foreground)',
-                          }}
-                        >
-                          {fmt}
-                        </span>
-                      ))}
-                    </div>
-
-                    {/* CTA */}
+                  <div className={app.destaque ? 'flex' : 'flex flex-col'}>
+                    {/* Card header */}
                     <div
-                      className="flex items-center gap-2 pt-1"
-                      style={{ color: app.accent }}
+                      className={`${app.destaque ? 'px-6 py-6 flex-1' : 'px-6 pt-6 pb-5'}`}
+                      style={{
+                        background: `linear-gradient(135deg, ${app.accentLight} 0%, transparent 100%)`,
+                        borderBottom: app.destaque ? 'none' : `1px solid ${app.accentBorder}`,
+                        borderRight: app.destaque ? `1px solid ${app.accentBorder}` : 'none',
+                      }}
                     >
-                      <span className="p-ui-medium">Abrir aplicação</span>
-                      <ArrowRight size={16} />
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <span
+                          className="w-12 h-12 flex items-center justify-center rounded-2xl flex-shrink-0"
+                          style={{ background: app.destaque ? 'linear-gradient(135deg, #7C3AED, #EA580C)' : app.accent, color: '#fff' }}
+                        >
+                          <Icon size={22} />
+                        </span>
+                        <div className="flex items-center gap-2 flex-wrap justify-end">
+                          {isDev && (
+                            <span
+                              className="detail-medium px-2.5 py-1 rounded-full flex-shrink-0 flex items-center gap-1"
+                              style={{ backgroundColor: 'rgba(234,88,12,0.1)', color: '#EA580C', border: '1px solid rgba(234,88,12,0.25)', fontSize: 10 }}
+                            >
+                              <Construction size={9} /> Em desenvolvimento
+                            </span>
+                          )}
+                          {isBeta && (
+                            <span
+                              className="detail-medium px-2.5 py-1 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: 'rgba(124,58,237,0.1)', color: '#7C3AED', border: '1px solid rgba(124,58,237,0.2)', fontSize: 10 }}
+                            >
+                              Beta
+                            </span>
+                          )}
+                          <span
+                            className="detail-medium px-3 py-1 rounded-full flex-shrink-0"
+                            style={{
+                              backgroundColor: app.accentLight,
+                              color: app.accentSolid,
+                              border: `1px solid ${app.accentBorder}`,
+                            }}
+                          >
+                            {app.badge}
+                          </span>
+                        </div>
+                      </div>
+                      <h2 style={{ color: 'var(--foreground)', margin: 0, fontSize: app.destaque ? '1.25rem' : '1.1rem', fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontWeight: 700 }}>
+                        {app.title}
+                      </h2>
+                    </div>
+
+                    {/* Card body */}
+                    <div className={`${app.destaque ? 'px-6 py-6 flex-1' : 'px-6 py-4'} flex flex-col gap-4`}>
+                      <span className="body-regular" style={{ color: 'var(--muted-foreground)' }}>
+                        {app.description}
+                      </span>
+
+                      {/* Formats */}
+                      <div className="flex gap-2 flex-wrap">
+                        {app.formats.map((fmt) => (
+                          <span
+                            key={fmt}
+                            className="detail-medium px-2.5 py-1 rounded-full"
+                            style={{
+                              backgroundColor: 'var(--secondary)',
+                              color: 'var(--secondary-foreground)',
+                            }}
+                          >
+                            {fmt}
+                          </span>
+                        ))}
+                      </div>
+
+                      {/* CTA */}
+                      <div
+                        className="flex items-center gap-2 pt-1"
+                        style={{ color: app.accentSolid }}
+                      >
+                        <span className="p-ui-medium">Abrir aplicação</span>
+                        <ArrowRight size={16} />
+                      </div>
                     </div>
                   </div>
                 </button>

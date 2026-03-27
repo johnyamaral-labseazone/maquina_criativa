@@ -547,4 +547,195 @@ app.post('/api/campanha/generate-copies', async (req, res) => {
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
 
+// ── v2: Atendimento ───────────────────────────────────────────────────────────
+app.post('/api/v2/atendimento', async (req, res) => {
+  const { urls = [], text = '', referenceImages = [] } = req.body as { urls: string[]; text: string; referenceImages: string[] }
+  if (!googleAI && !anthropic) { res.status(503).json({ error: 'Nenhuma API de IA configurada' }); return }
+
+  const sourceList = [...urls.map((u: string) => `URL: ${u}`), text ? `Texto manual: ${text.slice(0, 2000)}` : ''].filter(Boolean).join('\n')
+  const prompt = `${SEAZONE_CONTEXT}
+
+Você é o Agente de Atendimento de uma agência de publicidade imobiliária.
+Analise todas as fontes do briefing abaixo e organize as informações para a equipe criativa.
+
+FONTES DO BRIEFING:
+${sourceList}
+
+Retorne APENAS JSON válido (sem markdown):
+{
+  "produto": "nome do empreendimento/produto",
+  "publicoAlvo": "descrição do público",
+  "mensagensPrincipais": ["mensagem 1", "mensagem 2", "mensagem 3"],
+  "tom": "profissional|amigavel|urgente|luxo",
+  "diferenciais": ["diferencial 1", "diferencial 2"],
+  "cta": "chamada para ação principal",
+  "observacoes": "observações e restrições importantes",
+  "valorInvestimento": "valor ex: R$ 500.000",
+  "rendaMensal": "valor ex: R$ 3.500/mês",
+  "roi": "percentual ex: 8% ao ano",
+  "taxaOcupacao": "percentual ex: 85%",
+  "localizacao": "cidade/estado/bairro",
+  "paginasLidas": ["url ou fonte 1", "url ou fonte 2"],
+  "resumoExecutivo": "2-3 parágrafos resumindo tudo que foi lido e as principais diretrizes criativas"
+}`
+
+  try {
+    let responseText = ''
+    if (googleAI) {
+      const parts: unknown[] = [{ text: prompt }]
+      // Add reference image for visual style analysis
+      if (referenceImages.length > 0) {
+        const b64match = (referenceImages[0] as string).match(/^data:(image\/\w+);base64,(.+)$/)
+        if (b64match) parts.unshift({ inlineData: { mimeType: b64match[1], data: b64match[2] } })
+      }
+      const r = await googleAI.models.generateContent({ model: 'gemini-2.5-flash', contents: [{ role: 'user', parts }] })
+      responseText = r.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}'
+    } else if (anthropic) {
+      const msg = await anthropic.messages.create({
+        model: 'claude-opus-4-5', max_tokens: 2048,
+        messages: [{ role: 'user', content: prompt }],
+      })
+      responseText = msg.content[0].type === 'text' ? msg.content[0].text : '{}'
+    }
+    const cleaned = responseText.replace(/```json\n?|\n?```/g, '').trim()
+    const briefing = JSON.parse(cleaned)
+    briefing.paginasLidas = briefing.paginasLidas ?? urls
+    res.json({ briefing })
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
+// ── v2: Redator ───────────────────────────────────────────────────────────────
+app.post('/api/v2/redator', async (req, res) => {
+  const { briefing, estruturasCount = 3, variacoesCount = 3, incluirNarrado, incluirApresentadora, previousFeedback = [], campaignName } = req.body
+  if (!googleAI && !anthropic) { res.status(503).json({ error: 'Nenhuma API de IA configurada' }); return }
+
+  const feedbackSection = previousFeedback.length > 0
+    ? `\n\nOBSERVAÇÕES DA REVISÃO ANTERIOR (evite repetir):\n${previousFeedback.map((f: string) => `- ${f}`).join('\n')}`
+    : ''
+
+  const totalCopies = estruturasCount * variacoesCount
+  const ESTRUTURA_DEFS = [
+    'Estrutura 1: Foco em RETORNO FINANCEIRO (ROI, renda mensal, valorização)',
+    'Estrutura 2: Foco em LOCALIZAÇÃO E LIFESTYLE (praia, qualidade de vida, status)',
+    'Estrutura 3: Foco em GESTÃO PROFISSIONAL (tranquilidade, tecnologia, transparência)',
+  ]
+  const estruturaLines = ESTRUTURA_DEFS.slice(0, estruturasCount).join('\n')
+  const financialCtx = briefing?.valorInvestimento ? `\nDados financeiros: Investimento ${briefing.valorInvestimento} | Renda ${briefing.rendaMensal}/mês | ROI ${briefing.roi} | Ocupação ${briefing.taxaOcupacao}` : ''
+
+  const roteiroSection = (incluirNarrado || incluirApresentadora) ? `
+"roteirosNarrado": [
+  {"estrutura": 1, "titulo": "...", "roteiro": "roteiro completo de 30-35s para narração", "duracao": "30-35s", "legenda": "legenda para redes sociais com emojis e hashtags"}
+],
+"roteirosApresentadora": [
+  {"estrutura": 1, "titulo": "...", "roteiro": "roteiro completo de 20-25s para apresentadora falar olhando para câmera", "duracao": "20-25s", "legenda": "legenda para redes sociais"}
+]` : '"roteirosNarrado": [], "roteirosApresentadora": []'
+
+  const prompt = `${SEAZONE_CONTEXT}${feedbackSection}
+
+Você é o Redator de uma agência de publicidade imobiliária.
+Crie copies e roteiros para a campanha abaixo.
+
+Campanha: ${campaignName || briefing?.produto}
+Produto: ${briefing?.produto}
+Localização: ${briefing?.localizacao}
+Público: ${briefing?.publicoAlvo}
+Mensagens: ${(briefing?.mensagensPrincipais ?? []).join(', ')}
+Tom: ${briefing?.tom}
+Diferenciais: ${(briefing?.diferenciais ?? []).join(', ')}
+CTA base: ${briefing?.cta}${financialCtx}
+
+ESTRUTURAS:
+${estruturaLines}
+
+Crie ${totalCopies} copies (${estruturasCount} estruturas × ${variacoesCount} variações) — headlines curtas e impactantes, corpo máx 2 linhas, CTA direto.
+${incluirNarrado ? `Crie ${estruturasCount} roteiro(s) narrado com voz em off — descreva cenas e locução.` : ''}
+${incluirApresentadora ? `Crie ${estruturasCount} roteiro(s) para apresentadora falar diretamente para a câmera.` : ''}
+Crie 1 legenda por estrutura para publicação nas redes.
+
+Retorne APENAS JSON válido (sem markdown):
+{
+  "copies": [{"estrutura": 1, "variacao": 1, "headline": "...", "body": "...", "cta": "..."}],
+  ${roteiroSection},
+  "legendas": ["legenda estrutura 1 completa com hashtags"]
+}`
+
+  try {
+    let responseText = ''
+    if (googleAI) {
+      const r = await googleAI.models.generateContent({ model: 'gemini-2.5-flash', contents: [{ role: 'user', parts: [{ text: prompt }] }] })
+      responseText = r.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}'
+    } else if (anthropic) {
+      const msg = await anthropic.messages.create({
+        model: 'claude-opus-4-5', max_tokens: 4096,
+        messages: [{ role: 'user', content: prompt }],
+      })
+      responseText = msg.content[0].type === 'text' ? msg.content[0].text : '{}'
+    }
+    const cleaned = responseText.replace(/```json\n?|\n?```/g, '').trim()
+    res.json(JSON.parse(cleaned))
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
+// ── v2: Diretor de Arte ────────────────────────────────────────────────────────
+app.post('/api/v2/diretor', async (req, res) => {
+  const { briefing, copies = [], creativesCount = 0, videosCount = 0, incluirImagens, incluirNarrado, incluirApresentadora } = req.body
+  if (!googleAI && !anthropic) { res.status(503).json({ error: 'Nenhuma API de IA configurada' }); return }
+
+  const expectedImagens = incluirImagens ? 'Imagens Feed+Story' : 'Imagens desativadas'
+  const expectedVideo = incluirNarrado ? 'Vídeos narrados' : 'Vídeo narrado desativado'
+  const expectedApres = incluirApresentadora ? 'Vídeos apresentadora' : 'Vídeo apresentadora desativado'
+
+  const headlineSample = copies.slice(0, 3).map((c: { headline: string; body: string; cta: string }, i: number) => `${i + 1}. "${c.headline}" / "${c.body}" / CTA: "${c.cta}"`).join('\n')
+
+  const prompt = `${SEAZONE_CONTEXT}
+
+Você é o Diretor de Arte de uma agência de publicidade imobiliária.
+Revise os materiais criados e avalie se estão alinhados com o briefing.
+
+BRIEFING:
+Produto: ${briefing?.produto}
+Público: ${briefing?.publicoAlvo}
+Mensagens: ${(briefing?.mensagensPrincipais ?? []).join(', ')}
+Tom: ${briefing?.tom}
+Diferenciais: ${(briefing?.diferenciais ?? []).join(', ')}
+CTA: ${briefing?.cta}
+Observações/Restrições: ${briefing?.observacoes}
+
+MATERIAIS ENTREGUES:
+- Imagens geradas: ${creativesCount} (esperado: ${expectedImagens})
+- Vídeos gerados: ${videosCount} (esperado: ${expectedVideo} + ${expectedApres})
+- Copies criadas: ${copies.length}
+
+AMOSTRA DE COPIES:
+${headlineSample}
+
+Avalie se os materiais estão alinhados ao briefing, seguem as diretrizes da marca Seazone e nenhum elemento proibido foi usado.
+
+Retorne APENAS JSON válido:
+{
+  "aprovado": true ou false,
+  "score": 0-100,
+  "pontos": ["ponto positivo 1", "ponto positivo 2"],
+  "problemas": ["problema 1 se houver"],
+  "sugestoes": ["sugestão de melhoria"],
+  "relatorio": "parágrafo com avaliação geral da campanha"
+}`
+
+  try {
+    let responseText = ''
+    if (googleAI) {
+      const r = await googleAI.models.generateContent({ model: 'gemini-2.5-flash', contents: [{ role: 'user', parts: [{ text: prompt }] }] })
+      responseText = r.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}'
+    } else if (anthropic) {
+      const msg = await anthropic.messages.create({
+        model: 'claude-opus-4-5', max_tokens: 1024,
+        messages: [{ role: 'user', content: prompt }],
+      })
+      responseText = msg.content[0].type === 'text' ? msg.content[0].text : '{}'
+    }
+    const cleaned = responseText.replace(/```json\n?|\n?```/g, '').trim()
+    res.json({ review: JSON.parse(cleaned) })
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
 export default app
