@@ -136,6 +136,46 @@ async function generateWithFalKling(prompt: string, duration: number, model = 'f
   return videoUrl
 }
 
+// ── Google Veo video helper ───────────────────────────────────────────────────
+async function generateWithVeo(prompt: string, durationSeconds: number): Promise<string> {
+  if (!googleAI || !GOOGLE_KEY) throw new Error('GOOGLE_API_KEY não configurada')
+  const TIMEOUT_MS = 55000
+  let operation = await (googleAI as unknown as {
+    models: { generateVideos(p: object): Promise<{ done?: boolean; name?: string; response?: { generatedVideos?: Array<{ video?: { uri?: string; videoBytes?: string; mimeType?: string } }> }; error?: { message?: string } }> }
+    operations: { getVideosOperation(p: object): Promise<typeof operation> }
+  }).models.generateVideos({
+    model: 'veo-2.0-generate-001',
+    source: { prompt: `${prompt}, 9:16 vertical format` },
+    config: { numberOfVideos: 1, durationSeconds: durationSeconds <= 5 ? 5 : 8, aspectRatio: '9:16' },
+  })
+  const deadline = Date.now() + TIMEOUT_MS
+  while (!operation.done) {
+    if (Date.now() > deadline) throw new Error('Veo timeout 55s')
+    await new Promise(r => setTimeout(r, 8000))
+    operation = await (googleAI as unknown as {
+      operations: { getVideosOperation(p: object): Promise<typeof operation> }
+    }).operations.getVideosOperation({ operation })
+  }
+  if (operation.error?.message) throw new Error(`Veo: ${operation.error.message}`)
+  const vid = operation.response?.generatedVideos?.[0]?.video
+  if (!vid) throw new Error('Veo sem vídeo na resposta')
+  // Prefer raw bytes if available
+  if (vid.videoBytes) {
+    const filename = `veo_${Date.now()}.mp4`
+    fs.writeFileSync(path.join(TEMP_VIDEO_DIR, filename), Buffer.from(vid.videoBytes, 'base64'))
+    return `/temp/videos/${filename}`
+  }
+  if (vid.uri) {
+    // Download from Google AI file URI using API key
+    const r = await fetch(`${vid.uri}?key=${GOOGLE_KEY}&alt=media`, { signal: AbortSignal.timeout(20000) })
+    if (!r.ok) throw new Error(`Veo download ${r.status}`)
+    const filename = `veo_${Date.now()}.mp4`
+    fs.writeFileSync(path.join(TEMP_VIDEO_DIR, filename), Buffer.from(await r.arrayBuffer()))
+    return `/temp/videos/${filename}`
+  }
+  throw new Error('Veo sem URI e sem bytes')
+}
+
 // ── Google Gemini image helper ────────────────────────────────────────────────
 function aspectHint(r: string) {
   const m: Record<string, string> = { '1:1': 'square 1:1', '9:16': 'vertical portrait 9:16', '4:5': 'vertical 4:5', '16:9': 'landscape 16:9' }
@@ -381,21 +421,39 @@ app.post('/api/ai/generate-imagen', async (req, res) => {
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
 
-// Video generation (FAL.AI → Freepik)
+// Video generation (FAL.AI → Freepik → Google Veo)
 app.post('/api/ai/generate-video', async (req, res) => {
-  if (!FAL_KEY && !FREEPIK_KEY) { res.status(503).json({ error: 'Nenhuma API de vídeo configurada' }); return }
+  if (!FAL_KEY && !FREEPIK_KEY && !googleAI) { res.status(503).json({ error: 'Nenhuma API de vídeo configurada' }); return }
   const { prompt, durationSeconds = 5, tipo = 'narrado', assetsContext } = req.body
   const narradoContext = assetsContext ? ` ${assetsContext}` : ''
   const basePrompt = tipo === 'apresentadora'
     ? `${prompt}, professional presenter speaking to camera, Seazone real estate, coastal property backdrop, cinematic`
     : `${prompt}${narradoContext}, professional real estate cinematic footage, coastal property, natural lighting, no people, no text`
   if (FAL_KEY) {
-    try { const v = await generateWithFalKling(basePrompt, durationSeconds); res.json({ videoUrl: v, generator: 'fal-kling-v2.1' }); return } catch { /* fallthrough */ }
+    try {
+      console.log('[video] FAL.AI Kling...')
+      const v = await generateWithFalKling(basePrompt, durationSeconds)
+      console.log('[video] ✅ FAL.AI OK')
+      res.json({ videoUrl: v, generator: 'fal-kling-v2.1' }); return
+    } catch (err) { console.warn('[video] FAL.AI falhou:', String(err).slice(0, 120)) }
   }
   if (FREEPIK_KEY) {
-    try { const v = await generateWithKling(basePrompt, durationSeconds); res.json({ videoUrl: v, generator: 'kling' }); return } catch { /* fallthrough */ }
+    try {
+      console.log('[video] Freepik Kling...')
+      const v = await generateWithKling(basePrompt, durationSeconds)
+      console.log('[video] ✅ Freepik OK')
+      res.json({ videoUrl: v, generator: 'kling' }); return
+    } catch (err) { console.warn('[video] Freepik falhou:', String(err).slice(0, 120)) }
   }
-  res.status(500).json({ error: 'Todas as APIs de vídeo falharam' })
+  if (googleAI) {
+    try {
+      console.log('[video] Google Veo 2...')
+      const v = await generateWithVeo(basePrompt, durationSeconds)
+      console.log('[video] ✅ Veo OK')
+      res.json({ videoUrl: v, generator: 'google-veo2' }); return
+    } catch (err) { console.warn('[video] Veo falhou:', String(err).slice(0, 120)) }
+  }
+  res.status(500).json({ error: 'Todas as APIs de vídeo falharam (FAL.AI, Freepik, Google Veo)' })
 })
 
 // FAL.AI video dedicated endpoint
