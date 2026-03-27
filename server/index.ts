@@ -1424,15 +1424,46 @@ app.post('/api/ai/generate-video', async (req, res) => {
     ? `${prompt}, professional presenter speaking to camera, Seazone real estate, coastal property backdrop, clear audio narration, cinematic`
     : `${prompt}${narradoContext}, professional real estate cinematic footage, coastal property, natural lighting, luxury architecture, no people, no text`
 
-  // 1. Freepik Veo 2 — primário
-  if (FREEPIK_KEY) {
+  // 1. Google Veo — primário
+  if (googleAI) {
     try {
-      console.log(`[freepik-veo2] Iniciando geração — tipo: ${tipo}, duração: ${durationSeconds}s`)
-      const videoUrl = await generateWithFreepikVeo2(basePromptNarrado, durationSeconds, aspectRatio)
-      res.json({ videoUrl, generator: 'freepik-veo2' })
+      const veoAspect = aspectRatio === '1:1' ? '1:1' : aspectRatio === '4:5' ? '4:5' : '9:16'
+      console.log(`[veo] Iniciando geração — aspecto: ${veoAspect}, duração: ${durationSeconds}s`)
+
+      let operation = await googleAI.models.generateVideos({
+        model: 'veo-2.0-generate-001',
+        prompt: basePromptNarrado,
+        config: {
+          numberOfVideos: 1,
+          durationSeconds: Math.min(Number(durationSeconds), 8),
+          aspectRatio: veoAspect,
+          personGeneration: tipo === 'apresentadora' ? 'allow_adult' : 'dont_allow',
+        },
+      })
+
+      const deadline = Date.now() + 6 * 60 * 1000
+      while (!operation.done) {
+        if (Date.now() > deadline) throw new Error('Timeout: geração de vídeo ultrapassou 6 minutos')
+        console.log('[veo] Aguardando...')
+        await new Promise((r) => setTimeout(r, 10_000))
+        operation = await googleAI.operations.getVideosOperation({ operation })
+      }
+
+      const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri
+      if (!videoUri) throw new Error('Nenhum vídeo retornado pelo Veo')
+
+      const dlRes = await fetch(`${videoUri}&key=${GOOGLE_KEY}`)
+      if (!dlRes.ok) throw new Error(`Falha ao baixar vídeo: ${dlRes.status}`)
+
+      const filename = `veo_${Date.now()}.mp4`
+      const filepath = path.join(TEMP_VIDEO_DIR, filename)
+      fs.writeFileSync(filepath, Buffer.from(await dlRes.arrayBuffer()))
+
+      console.log(`[veo] ✅ Salvo em ${filepath}`)
+      res.json({ videoUrl: `/temp/videos/${filename}`, filename, generator: 'google-veo2' })
       return
     } catch (err) {
-      console.warn('[freepik-veo2] Falhou, tentando FAL.AI Kling...', String(err).slice(0, 80))
+      console.warn('[veo] Falhou, tentando FAL.AI Kling...', String(err).slice(0, 100))
     }
   }
 
@@ -1444,80 +1475,11 @@ app.post('/api/ai/generate-video', async (req, res) => {
       res.json({ videoUrl, generator: 'fal-kling-v2.1' })
       return
     } catch (err) {
-      console.warn('[fal-kling] Falhou, tentando Freepik Kling v3...', String(err).slice(0, 80))
+      console.warn('[fal-kling] Falhou:', String(err).slice(0, 80))
     }
   }
 
-  // 3. Freepik Kling v3 — fallback
-  if (FREEPIK_KEY) {
-    try {
-      console.log(`[kling-v3] Iniciando geração — tipo: ${tipo}, duração: ${durationSeconds}s`)
-      const videoUrl = await generateWithKling(basePromptNarrado, durationSeconds)
-      res.json({ videoUrl, generator: 'kling-v3' })
-      return
-    } catch (err) {
-      console.warn('[kling-v3] Falhou, tentando Veo 3...', String(err))
-    }
-  }
-
-  if (!googleAI) {
-    res.status(503).json({ error: 'Nenhuma API de vídeo disponível' })
-    return
-  }
-
-  // Veo 3 fallback
-  const veoAspect = aspectRatio === '1:1' ? '1:1' : aspectRatio === '4:5' ? '4:5' : '9:16'
-
-  try {
-    console.log(`[veo3] Iniciando geração — aspecto: ${veoAspect}, duração: ${durationSeconds}s`)
-
-    // Start async video generation
-    let operation = await googleAI.models.generateVideos({
-      model: 'veo-3.0-generate-preview',
-      prompt: `${prompt}, professional real estate cinematic footage, natural lighting, architectural, no people, no text, no watermarks`,
-      config: {
-        numberOfVideos: 1,
-        durationSeconds: Math.min(Number(durationSeconds), 8),
-        aspectRatio: veoAspect,
-        personGeneration: 'dont_allow',
-      },
-    })
-
-    // Poll until done (max 6 min)
-    const deadline = Date.now() + 6 * 60 * 1000
-    while (!operation.done) {
-      if (Date.now() > deadline) {
-        throw new Error('Timeout: geração de vídeo ultrapassou 6 minutos')
-      }
-      console.log('[veo3] Aguardando geração...')
-      await new Promise((r) => setTimeout(r, 10_000))
-      operation = await googleAI.operations.getVideosOperation({ operation })
-    }
-
-    const generatedVideo = operation.response?.generatedVideos?.[0]
-    if (!generatedVideo?.video?.uri) {
-      throw new Error('Nenhum vídeo retornado pelo Veo 3')
-    }
-
-    const videoUri = generatedVideo.video.uri
-    console.log(`[veo3] Vídeo gerado: ${videoUri}`)
-
-    // Download video from Google
-    const dlRes = await fetch(`${videoUri}&key=${GOOGLE_KEY}`)
-    if (!dlRes.ok) throw new Error(`Falha ao baixar vídeo: ${dlRes.status} ${dlRes.statusText}`)
-
-    const buffer    = await dlRes.arrayBuffer()
-    const filename  = `veo3_${Date.now()}.mp4`
-    const filepath  = path.join(TEMP_VIDEO_DIR, filename)
-    fs.writeFileSync(filepath, Buffer.from(buffer))
-
-    console.log(`[veo3] Salvo em ${filepath}`)
-    res.json({ videoUrl: `/temp/videos/${filename}`, filename })
-
-  } catch (err) {
-    console.error('[veo3]', err)
-    res.status(500).json({ error: String(err) })
-  }
+  res.status(503).json({ error: 'Nenhuma API de vídeo disponível' })
 })
 
 // ── Campanha: validate content ────────────────────────────────────────────────
