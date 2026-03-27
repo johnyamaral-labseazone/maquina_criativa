@@ -176,27 +176,50 @@ async function generateWithVeo(prompt: string, durationSeconds: number): Promise
   throw new Error('Veo sem URI e sem bytes')
 }
 
-// ── Google Gemini image helper ────────────────────────────────────────────────
+// ── Google image helpers ──────────────────────────────────────────────────────
 function aspectHint(r: string) {
   const m: Record<string, string> = { '1:1': 'square 1:1', '9:16': 'vertical portrait 9:16', '4:5': 'vertical 4:5', '16:9': 'landscape 16:9' }
   return m[r] ?? 'square 1:1'
 }
+// Map our format strings to Imagen-compatible aspect ratios
+function imagenAR(fmt: string): string {
+  const m: Record<string, string> = { '1:1': '1:1', '9:16': '9:16', '16:9': '16:9', '4:5': '4:5', '3:4': '3:4', '4:3': '4:3' }
+  return m[fmt] ?? '1:1'
+}
+type GenerateImagesResponse = { generatedImages?: Array<{ image?: { imageBytes?: string; mimeType?: string } }> }
 async function generateWithGemini(prompt: string, aspectRatio: string): Promise<{ base64: string; mimeType: string }> {
   if (!googleAI) throw new Error('GOOGLE_API_KEY não configurada')
-  const fullPrompt = `${prompt}, ${aspectHint(aspectRatio)}`
+  // 1. Imagen 4 via generateImages API (best quality)
+  for (const model of ['imagen-4.0-generate-001', 'imagen-3.0-generate-001', 'imagen-3.0-fast-generate-001']) {
+    try {
+      const resp = await (googleAI.models.generateImages as (p: object) => Promise<GenerateImagesResponse>)({
+        model,
+        prompt: `${prompt}, ${aspectHint(aspectRatio)}`,
+        config: { numberOfImages: 1, aspectRatio: imagenAR(aspectRatio), outputMimeType: 'image/jpeg' },
+      })
+      const bytes = resp.generatedImages?.[0]?.image?.imageBytes
+      if (!bytes) throw new Error('Sem bytes')
+      return { base64: bytes, mimeType: 'image/jpeg' }
+    } catch (err) {
+      console.warn(`[gemini] ${model} falhou:`, String(err).slice(0, 80))
+    }
+  }
+  // 2. Gemini 2.0 Flash multimodal image output (fallback)
   for (const model of ['gemini-2.0-flash-exp-image-generation', 'gemini-2.0-flash-preview-image-generation']) {
     try {
       const response = await googleAI.models.generateContent({
-        model, contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
+        model, contents: [{ role: 'user', parts: [{ text: `${prompt}, ${aspectHint(aspectRatio)}` }] }],
         config: { responseModalities: ['IMAGE', 'TEXT'] },
       })
       const parts = response.candidates?.[0]?.content?.parts ?? []
       const imagePart = parts.find((p: Record<string, unknown>) => p.inlineData) as { inlineData: { data: string; mimeType: string } } | undefined
       if (!imagePart?.inlineData?.data) throw new Error('Sem imagem')
       return { base64: imagePart.inlineData.data, mimeType: imagePart.inlineData.mimeType ?? 'image/png' }
-    } catch { /* try next model */ }
+    } catch (err) {
+      console.warn(`[gemini] ${model} falhou:`, String(err).slice(0, 80))
+    }
   }
-  throw new Error('Gemini image generation falhou')
+  throw new Error('Gemini image generation falhou em todos os modelos')
 }
 
 // ── Reference style analysis (Gemini) ────────────────────────────────────────
