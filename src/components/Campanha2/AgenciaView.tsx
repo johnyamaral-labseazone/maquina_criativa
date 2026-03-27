@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { useCampanha2Store, AgentId, AgentBase, CopySet2, Roteiro } from '../../stores/campanha2Store'
+import { useCampanha2Store } from '../../stores/campanha2Store'
+import type { AgentBase, CopySet2, Roteiro } from '../../stores/campanha2Store'
 import {
   CheckCircle2, AlertCircle, Clock, Loader2, ChevronRight,
   Headphones, PenLine, Palette, Film, Award, Ban, Edit3, Check, RotateCcw
@@ -188,7 +189,7 @@ function CopyEditor() {
       )}
 
       {/* Roteiros preview */}
-      <RoteirosPreview redator={redator} />
+      <RoteirosPreview roteirosNarrado={redator.roteirosNarrado} roteirosApresentadora={redator.roteirosApresentadora} />
     </div>
   )
 }
@@ -226,15 +227,16 @@ function CopyForm({ copy, idx, onUpdate }: { copy: CopySet2; idx: number; onUpda
   )
 }
 
-function RoteirosPreview({ redator }: { redator: ReturnType<typeof useCampanha2Store>['redator'] }) {
-  const { roteirosNarrado, roteirosApresentadora } = redator
+interface RoteirosPreviewProps {
+  roteirosNarrado: Roteiro[]
+  roteirosApresentadora: Roteiro[]
+}
+function RoteirosPreview({ roteirosNarrado, roteirosApresentadora }: RoteirosPreviewProps) {
   if (!roteirosNarrado.length && !roteirosApresentadora.length) return null
 
   const renderRoteiro = (rot: Roteiro, tipo: string) => (
     <div key={`${tipo}-e${rot.estrutura}`} className="flex flex-col gap-1 p-3 rounded-xl" style={{ backgroundColor: 'var(--secondary)', border: '1px solid var(--border)' }}>
-      <div className="flex items-center justify-between">
-        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted-foreground)', textTransform: 'uppercase' }}>{tipo} — E{rot.estrutura} · {rot.duracao}</span>
-      </div>
+      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted-foreground)', textTransform: 'uppercase' }}>{tipo} — E{rot.estrutura} · {rot.duracao}</span>
       <p style={{ fontSize: 12, color: 'var(--foreground)', margin: 0, lineHeight: 1.5 }}>{rot.roteiro}</p>
       {rot.legenda && <p style={{ fontSize: 11, color: 'var(--muted-foreground)', fontStyle: 'italic', margin: 0 }}>📱 {rot.legenda}</p>}
     </div>

@@ -202,11 +202,20 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
     return { redator: { ...s.redator, copies } }
   }),
 
-  _patch: (id, u) => set((s) => ({ [id]: { ...s[id as keyof typeof s], ...u } } as Partial<Campanha2Store>)),
+  _patch: (id, u) => set((s) => {
+    const current = s[id as keyof Campanha2Store]
+    if (typeof current !== 'object' || current === null) return {} as Partial<Campanha2Store>
+    return { [id]: { ...(current as object), ...(u as object) } } as Partial<Campanha2Store>
+  }),
 
   _log: (id, msg, type = 'info') => {
     const log: AgentLog = { time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }), msg, type }
-    set((s) => ({ [id]: { ...s[id as keyof typeof s], logs: [...(s[id as keyof typeof s] as AgentBase).logs, log] } } as Partial<Campanha2Store>))
+    set((s) => {
+      const current = s[id as keyof Campanha2Store]
+      if (typeof current !== 'object' || current === null) return {} as Partial<Campanha2Store>
+      const agent = current as AgentBase
+      return { [id]: { ...(current as object), logs: [...agent.logs, log] } } as Partial<Campanha2Store>
+    })
   },
 
   cancelAgency: () => {
