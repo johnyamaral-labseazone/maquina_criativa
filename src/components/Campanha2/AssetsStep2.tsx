@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { useCampanha2Store } from '../../stores/campanha2Store'
 import { FolderOpen, Upload, X, Image, User, ChevronRight, ChevronLeft, Home, Layers, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
 
-const DEFAULT_FIGMA_URL = 'https://www.figma.com/design/TuwWtcUvNB5uwi4v03qvAK/Criativos---Est%C3%A1ticos---Bonito-II---SZI'
+const DEFAULT_FIGMA_URL = ''
 
 export default function AssetsStep2() {
   const { assetsUrl, assetsContext, referenceImages, presenterImage, presenterImageName, propertyPhotos, figmaImages, setAssetsUrl, setAssetsContext, addReferenceImage, removeReferenceImage, setPresenterImage, addPropertyPhoto, removePropertyPhoto, setFigmaImages, setStep } = useCampanha2Store()
