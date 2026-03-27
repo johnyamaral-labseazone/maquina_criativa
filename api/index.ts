@@ -11,6 +11,10 @@ import { fal } from '@fal-ai/client'
 import * as dotenv from 'dotenv'
 import path from 'path'
 import fs from 'fs'
+import { fileURLToPath } from 'url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname  = path.dirname(__filename)
 
 dotenv.config()
 
@@ -34,6 +38,7 @@ const GOOGLE_KEY     = sanitizeKey(process.env.GOOGLE_API_KEY)
 const FREEPIK_KEY    = sanitizeKey(process.env.FREEPIK_API_KEY)
 const FAL_KEY        = sanitizeKey(process.env.FAL_KEY)
 const ELEVENLABS_KEY = sanitizeKey(process.env.ELEVENLABS_API_KEY)
+const FIGMA_TOKEN    = sanitizeKey(process.env.FIGMA_TOKEN)
 
 const anthropic = ANTHROPIC_KEY ? new Anthropic({ apiKey: ANTHROPIC_KEY }) : null
 const replicate = REPLICATE_KEY ? new Replicate({ auth: REPLICATE_KEY })   : null
@@ -106,7 +111,7 @@ async function generateWithKling(prompt: string, duration: number): Promise<stri
 // ── FAL.AI helpers ────────────────────────────────────────────────────────────
 function falSize(fmt: string): string | { width: number; height: number } {
   const m: Record<string, string | { width: number; height: number }> = {
-    '1:1': 'square_hd', '4:5': { width: 864, height: 1080 }, '9:16': { width: 576, height: 1024 }, '16:9': 'landscape_16_9',
+    '1:1': 'square_hd', '4:5': { width: 1080, height: 1350 }, '9:16': { width: 1080, height: 1920 }, '16:9': 'landscape_16_9',
   }
   return m[fmt] ?? 'square_hd'
 }
@@ -125,6 +130,30 @@ async function generateWithFalFlux(prompt: string, formato: string, model = 'fal
   const buf = await ir.arrayBuffer()
   return `data:image/jpeg;base64,${Buffer.from(buf).toString('base64')}`
 }
+// Image-to-image: generates a new image influenced by the reference image style
+async function generateWithFalImg2Img(prompt: string, formato: string, referenceDataUrl: string, strength = 0.75): Promise<string> {
+  if (!FAL_KEY) throw new Error('FAL_KEY não configurada')
+  const result = await Promise.race([
+    fal.subscribe('fal-ai/flux-general/image-to-image', {
+      input: {
+        image_url: referenceDataUrl,
+        prompt,
+        strength,
+        image_size: falSize(formato),
+        num_inference_steps: 28,
+        guidance_scale: 3.5,
+        num_images: 1,
+        output_format: 'jpeg',
+      },
+    }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('FAL.AI img2img timeout')), 50000)),
+  ]) as { data: { images: Array<{ url: string }> } }
+  const imageUrl = result.data?.images?.[0]?.url
+  if (!imageUrl) throw new Error('FAL.AI img2img sem imagem')
+  const ir = await fetch(imageUrl, { signal: AbortSignal.timeout(20000) })
+  return `data:image/jpeg;base64,${Buffer.from(await ir.arrayBuffer()).toString('base64')}`
+}
+
 async function generateWithFalKling(prompt: string, duration: number, model = 'fal-ai/kling-video/v2.1/standard/text-to-video'): Promise<string> {
   if (!FAL_KEY) throw new Error('FAL_KEY não configurada')
   const result = await fal.subscribe(model, {
@@ -361,6 +390,9 @@ IDENTIDADE VISUAL SEAZONE (aplicar em todos os criativos):
 - Assinatura de marca: barra coral #FC6058 de 3px na base de toda peça
 - Pílulas e badges: fundo branco + texto navy (localização) ou fundo translúcido + texto branco (status/CTA)
 
+REFERÊNCIA DE DESIGN — ESTA APLICAÇÃO:
+O agente designer deve usar como referência a própria identidade visual desta plataforma de automação Seazone. A interface usa: fundo escuro navy (#00143D), cards com borda sutil (rgba branco 8%), azul #0055FF nos CTAs principais, coral #FC6058 em badges de destaque e ícones de ação, tipografia Helvetica/Inter sem serifa, espaçamentos generosos, bordas arredondadas (border-radius 12-20px), hierarquia clara com títulos em branco e textos secundários em branco 60%. Todo criativo gerado deve respeitar essa linguagem visual — sóbria, premium, orientada a dados, sem excessos decorativos.
+
 ELEMENTOS ESTRITAMENTE PROIBIDOS NOS CRIATIVOS:
 1. Mencionar distância exata da praia (metros, minutos, tempo de caminhada)
 2. Usar termos: "lançamento exclusivo", "acessível", "imperdível", "última chance", "oportunidade única"
@@ -375,6 +407,86 @@ Cena 3: Destaques financeiros (ROI, renda mensal, diferenciais de gestão)
 Cena 4: Rooftop com vista + CTA final
 `
 const FORBIDDEN = ['distância da praia','minutos da praia','metros da praia','caminhada até','lançamento exclusivo','imperdível','última chance','oportunidade única','acessível','vista do mar do quarto','vista para o mar da unidade']
+
+// ── Biblioteca de produtos — contexto visual específico por empreendimento ────
+interface ProductEntry {
+  triggers: string[]
+  figmaUrl: string
+  designerContext: string
+  assetsFolder?: string  // subfolder in public/assets/products/
+}
+
+// Reads reference images from public/assets/products/<folder>/ (PNG + JPG)
+// Returns array of base64 data URLs. Tries referenciavisual first, then other images.
+function loadProductAssets(folder: string): string[] {
+  const assetsDir = path.resolve(__dirname, '..', 'public', 'assets', 'products', folder)
+  if (!fs.existsSync(assetsDir)) return []
+  const PRIORITY = ['referenciavisual.jpg', 'referenciavisual.png', 'fachada.png', 'fachada.jpg', 'foto-aerea.png', 'foto-aerea.jpg', 'rooftop.png', 'rooftop.jpg']
+  const found: string[] = []
+  for (const name of PRIORITY) {
+    const fp = path.join(assetsDir, name)
+    if (!fs.existsSync(fp)) continue
+    const ext = path.extname(name).toLowerCase()
+    const mime = ext === '.png' ? 'image/png' : 'image/jpeg'
+    try {
+      const b64 = fs.readFileSync(fp).toString('base64')
+      found.push(`data:${mime};base64,${b64}`)
+      if (found.length >= 3) break
+    } catch { /* skip unreadable file */ }
+  }
+  return found
+}
+
+const PRODUCT_LIBRARY: ProductEntry[] = [
+  {
+    triggers: ['novo campeche ii', 'novo campeche spot ii'],
+    assetsFolder: 'novo-campeche-spot-ii',
+    figmaUrl: 'https://www.figma.com/design/TuwWtcUvNB5uwi4v03qvAK/Criativos---Est%C3%A1ticos---Bonito-II---SZI',
+    designerContext: `
+PRODUTO ATIVO: NOVO CAMPECHE SPOT II — Seazone
+
+IDENTIDADE VISUAL DO PRODUTO:
+- Nome: "NOVO CAMPECHE II" com submarca "SPOT" em destaque
+- Logo principal: ícone de casa estilizado em coral (#FC6058) com círculo interno, seguido de texto branco bold em caixa alta
+- Logo secundário: círculo coral sólido (o "O" do SPOT) — elemento icônico e minimalista do produto
+- Tipografia do produto: caixa alta, bold, espaçamento amplo
+- Paleta extra (além da Seazone padrão): coral predominante do SPOT logo (#FC6058), concreto cinza-médio, madeira ripada natural tom cobre/mel
+
+ARQUITETURA DO EMPREENDIMENTO:
+- Fachada em concreto aparente com ripas verticais de madeira cobre/mel aquecendo a textura
+- Rooftop com piscina de borda infinita e vista aberta para a vegetação e oceano ao fundo
+- Cobertura verde (greenery) abundante na fachada e terraços — vegetação tropical exuberante
+- Branding "seazone" em letras grandes em relevo no terraço superior
+- Térreo com vidro do piso ao teto, porcelanato claro, ambiente de recepção sofisticado
+- Tom arquitetônico: industrial sofisticado + tropical — muito característico do Campeche
+
+FOTOS DO IMÓVEL (usar como backgrounds):
+1. FOTO AÉREA: vista drone do terreno no Novo Campeche com marcação "Acesso à praia" em balão branco, ponto coral indicando o imóvel e a praia ao fundo. SPOT logo como overlay inferior direito. Mar turquesa do Atlântico visível. Vegetação tropical ao redor.
+2. ROOFTOP: piscina de borda infinita com dois espreguiçadeiras, céu dramático em tons laranja/rosa/roxo do pôr do sol. Vegetação e edifícios ao fundo com mar ao horizonte. Luz quente e atmosfera premium.
+3. FACHADA: render arquitetônico frontal completo. Fachada de concreto + ripas de madeira cobre. Logo seazone no topo. Planta tropical na entrada. Iluminação interna aquecida visível. Bicicletário e calçamento articulado no térreo.
+
+LOCALIZAÇÃO:
+- Bairro: Novo Campeche, Florianópolis/SC
+- Acesso a pé à Praia do Campeche (marcado no mapa aéreo com trajetória pontilhada)
+- Vista aérea: edificio centralizado entre vegetação, com o oceano Atlântico ao fundo
+- Região premium com imóveis de alto padrão ao redor
+
+DIRETRIZES CRIATIVAS ESPECÍFICAS:
+- Usar foto aérea para peças de localização (Estrutura 2 — Localização e Lifestyle)
+- Usar rooftop para peças de ROI e retorno financeiro (Estrutura 1)
+- Usar fachada para peças de gestão e confiança (Estrutura 3)
+- Sempre incluir o logo "NOVO CAMPECHE II SPOT" na composição quando possível
+- Coral do SPOT logo é idêntico ao coral Seazone #FC6058 — reforçar esta cor
+- Enfatizar: acesso à praia a pé, rooftop com piscina, gestão completa Seazone, renda de temporada
+`,
+  },
+]
+
+function detectProductContext(nomeProduto: string): ProductEntry | null {
+  if (!nomeProduto) return null
+  const lower = nomeProduto.toLowerCase()
+  return PRODUCT_LIBRARY.find(p => p.triggers.some(t => lower.includes(t))) ?? null
+}
 
 // ── Express app ───────────────────────────────────────────────────────────────
 const app = express()
@@ -636,6 +748,98 @@ app.get('/api/campanha/drive-image/:fileId', async (req, res) => {
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
 
+// ── Figma integration ─────────────────────────────────────────────────────────
+// Extracts file key from any Figma URL (file, design, prototype)
+function parseFigmaUrl(url: string): { fileKey: string; nodeId: string | null } | null {
+  const m = url.match(/figma\.com\/(?:file|design|proto)\/([a-zA-Z0-9]+)/)
+  if (!m) return null
+  const fileKey = m[1]
+  let nodeId: string | null = null
+  try {
+    const raw = new URL(url).searchParams.get('node-id')
+    if (raw) nodeId = raw.replace(/-/g, ':')   // "123-456" → "123:456" (Figma API format)
+  } catch { /* ok */ }
+  return { fileKey, nodeId }
+}
+
+// Fetch frames from a Figma file and return as base64 images
+app.post('/api/campanha/fetch-figma-assets', async (req, res) => {
+  if (!FIGMA_TOKEN) { res.status(503).json({ error: 'FIGMA_TOKEN não configurado — adicione a variável de ambiente' }); return }
+  const { figmaUrl } = req.body as { figmaUrl?: string }
+  if (!figmaUrl) { res.status(400).json({ error: 'figmaUrl obrigatório' }); return }
+
+  const parsed = parseFigmaUrl(figmaUrl)
+  if (!parsed) { res.status(400).json({ error: 'URL do Figma inválida. Use a URL do arquivo ou de um frame específico.' }); return }
+  const { fileKey, nodeId } = parsed
+
+  const headers = { 'X-Figma-Token': FIGMA_TOKEN }
+
+  try {
+    let nodeIds: string[] = []
+
+    if (nodeId) {
+      // Specific frame/component requested
+      nodeIds = [nodeId]
+    } else {
+      // Fetch file structure and get top-level frames from first page
+      const fileResp = await fetch(`https://api.figma.com/v1/files/${fileKey}?depth=2`, {
+        headers, signal: AbortSignal.timeout(20000),
+      })
+      if (!fileResp.ok) {
+        const err = await fileResp.json() as { message?: string }
+        throw new Error(err.message ?? `Figma API ${fileResp.status}`)
+      }
+      const fileData = await fileResp.json() as { document?: { children?: Array<{ children?: Array<{ id: string; type: string; name: string }> }> } }
+      const firstPage = fileData.document?.children?.[0]
+      const frames = (firstPage?.children ?? [])
+        .filter(n => ['FRAME', 'COMPONENT', 'COMPONENT_SET', 'SECTION'].includes(n.type))
+        .slice(0, 12)
+      nodeIds = frames.map(n => n.id)
+    }
+
+    if (!nodeIds.length) {
+      res.status(404).json({ error: 'Nenhum frame encontrado no arquivo Figma. Verifique se o arquivo tem frames na primeira página.' })
+      return
+    }
+
+    // Export frames as PNG images
+    const exportUrl = `https://api.figma.com/v1/images/${fileKey}?ids=${encodeURIComponent(nodeIds.join(','))}&format=png&scale=1.5`
+    const exportResp = await fetch(exportUrl, { headers, signal: AbortSignal.timeout(20000) })
+    if (!exportResp.ok) {
+      const err = await exportResp.json() as { message?: string }
+      throw new Error(err.message ?? `Figma export ${exportResp.status}`)
+    }
+    const exportData = await exportResp.json() as { images?: Record<string, string | null>; err?: string }
+    if (exportData.err) throw new Error(`Figma: ${exportData.err}`)
+
+    const imageUrls = Object.values(exportData.images ?? {}).filter((u): u is string => !!u)
+    if (!imageUrls.length) {
+      res.status(404).json({ error: 'Figma não conseguiu exportar os frames. Tente com um arquivo menor.' })
+      return
+    }
+
+    // Download images from Figma's S3 URLs and convert to base64 (URLs expire)
+    const base64Images = (
+      await Promise.all(
+        imageUrls.slice(0, 8).map(async (url) => {
+          try {
+            const r = await fetch(url, { signal: AbortSignal.timeout(15000) })
+            if (!r.ok) return null
+            const buf = await r.arrayBuffer()
+            return `data:image/png;base64,${Buffer.from(buf).toString('base64')}`
+          } catch { return null }
+        })
+      )
+    ).filter((b): b is string => !!b)
+
+    console.log(`[figma] ${base64Images.length} frame(s) exportado(s) de ${fileKey}`)
+    res.json({ images: base64Images, count: base64Images.length })
+  } catch (err) {
+    console.error('[figma] fetch-figma-assets falhou:', String(err))
+    res.status(500).json({ error: String(err) })
+  }
+})
+
 // Validate content
 app.post('/api/campanha/validate', (req, res) => {
   const { contents } = req.body as { contents: string[] }
@@ -672,35 +876,69 @@ const styleCache = new Map<string, string>()
 // Generate creative (with optional reference-based style matching)
 app.post('/api/campanha/generate-creative', async (req, res) => {
   try {
-    const { copy, formato, referenceImages, assetsContext } = req.body
-    const refs: string[] = Array.isArray(referenceImages) ? referenceImages : []
-    const hasRef = refs.length > 0
+    const { copy, formato, referenceImages, assetsContext, produto } = req.body
+
+    // 1. User-provided references (uploaded in Assets tab)
+    const userRefs: string[] = Array.isArray(referenceImages) ? referenceImages : []
+
+    // 2. Detect product and load product assets from disk
+    const productEntry = detectProductContext(produto ?? copy?.headline ?? '')
+    const productAssets: string[] = productEntry?.assetsFolder
+      ? loadProductAssets(productEntry.assetsFolder)
+      : []
+
+    // Priority: user refs → product assets from disk → text-only
+    const allRefs = userRefs.length > 0 ? userRefs : productAssets
+    const hasRef  = allRefs.length > 0
+
     const contextHint = assetsContext ? `, ${assetsContext}` : ''
-    const bgPrompt = `Seazone luxury real estate Florianópolis Brazil, ${copy?.headline || ''}, aerial drone photography of coastal residential property, rooftop pool or beach access, turquoise Atlantic ocean, lush tropical vegetation, modern architecture, golden hour warm natural lighting${contextHint}, professional architectural photography, ultra high quality, no people, no text, no watermarks, no UI elements`
+    const bgPrompt = `Seazone luxury real estate Florianópolis Brazil, ${copy?.headline || ''}, aerial drone photography of coastal residential property, rooftop pool or beach access, turquoise Atlantic ocean, lush tropical vegetation, modern architecture, golden hour warm natural lighting${contextHint}, professional advertisement photography, ultra high quality, no people, no text, no watermarks, no UI elements`
 
     let bgDataUrl = ''
+    let generator  = 'ai-direct'
 
-    // Try reference-based styled generation first (FAL.AI + Gemini style analysis)
+    // ── Strategy A: FAL.AI image-to-image with reference ──────────────────────
     if (hasRef && FAL_KEY) {
-      const refKey = refs[0].slice(0, 60)
+      const refImage = allRefs[0]  // referenciavisual.jpg is first in priority
+      try {
+        console.log('[creative] FAL.AI img2img with reference', userRefs.length > 0 ? '(user upload)' : '(product asset)')
+        bgDataUrl = await generateWithFalImg2Img(bgPrompt, formato ?? '4:5', refImage, 0.72)
+        generator = userRefs.length > 0 ? 'img2img-user-ref' : 'img2img-product-asset'
+        console.log('[creative] ✅ img2img OK')
+      } catch (err) {
+        console.warn('[creative] img2img falhou, tentando styled prompt:', String(err).slice(0, 100))
+      }
+    }
+
+    // ── Strategy B: FAL.AI text prompt enriched with Gemini style analysis ────
+    if (!bgDataUrl && hasRef && googleAI) {
+      const refKey = allRefs[0].slice(0, 60)
       let styleDesc = styleCache.get(refKey)
-      if (!styleDesc && googleAI) {
-        styleDesc = await analyzeReferenceStyle(refs[0])
+      if (!styleDesc) {
+        styleDesc = await analyzeReferenceStyle(allRefs[0])
         if (styleDesc) styleCache.set(refKey, styleDesc)
       }
-      if (styleDesc) {
+      if (styleDesc && FAL_KEY) {
         try {
           bgDataUrl = await generateWithFalStyled(bgPrompt, formato ?? '4:5', styleDesc)
+          generator = 'styled-prompt'
         } catch { /* fallback below */ }
       }
     }
 
-    // Fallback to standard generation
+    // ── Strategy C: standard generation with product context in prompt ─────────
     if (!bgDataUrl) {
-      bgDataUrl = await generateBackground(bgPrompt, formato ?? '4:5').catch(() => '')
+      const productHint = productEntry ? `. Visual style: ${productEntry.designerContext.slice(0, 300)}` : ''
+      bgDataUrl = await generateBackground(`${bgPrompt}${productHint}`, formato ?? '4:5').catch(() => '')
+      generator = 'ai-direct'
     }
 
-    res.json({ imageDataUrl: bgDataUrl, generator: bgDataUrl ? (hasRef ? 'styled-ai' : 'ai-direct') : 'none' })
+    res.json({
+      imageDataUrl: bgDataUrl,
+      generator: bgDataUrl ? generator : 'none',
+      product: productEntry?.triggers[0] ?? null,
+      usedProductAssets: productAssets.length > 0,
+    })
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
 
@@ -821,7 +1059,10 @@ app.post('/api/v2/redator', async (req, res) => {
 "roteirosNarrado": ${incluirNarrado ? `[${Array.from({ length: totalNarrado }, (_, i) => `{"estrutura": ${Math.floor(i / narradoCount) + 1}, "titulo": "...", "roteiro": "roteiro completo de 30-35s para narração voz em off — descreva cenas e texto da locução", "duracao": "30-35s", "legenda": "legenda para redes sociais com emojis e hashtags"}`).join(', ')}]` : '[]'},
 "roteirosApresentadora": ${incluirApresentadora ? `[${Array.from({ length: totalApres }, (_, i) => `{"estrutura": ${Math.floor(i / apresentadoraCount) + 1}, "titulo": "...", "roteiro": "roteiro completo de 20-25s para apresentadora falar direto para câmera de forma natural e envolvente", "duracao": "20-25s", "legenda": "legenda para redes sociais"}`).join(', ')}]` : '[]'}` : '"roteirosNarrado": [], "roteirosApresentadora": []'
 
-  const prompt = `${SEAZONE_CONTEXT}${feedbackSection}
+  const productEntry = detectProductContext(briefing?.produto ?? '')
+  const productCtx = productEntry ? `\n\nCONTEXTO ESPECÍFICO DO PRODUTO:${productEntry.designerContext}` : ''
+
+  const prompt = `${SEAZONE_CONTEXT}${productCtx}${feedbackSection}
 
 Você é o Redator de uma agência de publicidade imobiliária.
 Crie copies e roteiros para a campanha abaixo.
