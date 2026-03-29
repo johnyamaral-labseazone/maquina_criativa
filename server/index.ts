@@ -1218,27 +1218,32 @@ const styleCache = new Map<string, string>()
 
 app.post('/api/campanha/generate-creative', async (req, res) => {
   try {
-    const { copy, formato, briefing, referenceImages, assetsContext } = req.body
+    const { copy, formato, briefing, referenceImages, assetsContext, backgroundImage } = req.body
     const refs: string[] = Array.isArray(referenceImages) ? referenceImages : []
     const hasRef = refs.length > 0
 
     const contextHint = assetsContext ? `, ${assetsContext}` : ''
     const bgPrompt = `Seazone real estate Brazil, ${copy?.headline || ''}, luxury coastal property aerial drone view, natural sunlight, turquoise ocean${contextHint}, no people, no text overlay, no watermarks`
 
-    console.log(`[creative] Gerando — formato: ${formato}, refs: ${refs.length}, headline: "${copy?.headline?.slice(0,30)}"`)
+    console.log(`[creative] Gerando — formato: ${formato}, refs: ${refs.length}, backgroundImage: ${!!backgroundImage}, headline: "${copy?.headline?.slice(0,30)}"`)
 
     let bgDataUrl = ''
     let generator = 'template+gradient'
 
-    if (hasRef) {
-      // ── Designer uses reference image directly as background ──────────────────
-      // No AI generation — preserves the visual identity of the reference piece.
-      // The HTML template overlays new copy/text on top, erasing original text.
+    if (backgroundImage) {
+      // ── Foto do imóvel como fundo: preserva a identidade visual do imóvel,
+      // o template HTML sobrepõe os textos do redator profissionalmente.
+      bgDataUrl = backgroundImage
+      generator = 'template+property-photo'
+      console.log('[creative] ✅ Usando foto do imóvel como fundo — aplicando copy do redator')
+    } else if (hasRef) {
+      // ── Referência de estilo como fundo: reproduz visualmente o material
+      // enviado na aba Assets, com os textos do redator aplicados por cima.
       bgDataUrl = refs[0]
       generator = 'template+reference-direct'
-      console.log('[creative] ✅ Usando imagem de referência diretamente como fundo')
+      console.log('[creative] ✅ Usando imagem de referência como fundo — aplicando copy do redator')
     } else {
-      // No reference provided — generate background with AI
+      // Sem referência — gera fundo com IA
       bgDataUrl = await Promise.race([
         generateBackground(bgPrompt, formato ?? '4:5'),
         new Promise<string>((_, reject) => setTimeout(() => reject(new Error('Background timeout 120s')), 120000)),
@@ -1249,7 +1254,7 @@ app.post('/api/campanha/generate-creative', async (req, res) => {
       generator = bgDataUrl ? 'template+ai' : 'template+gradient'
     }
 
-    // Render HTML template with new copy on top of background
+    // Renderiza o template HTML com o copy do redator sobreposto ao fundo
     const vars = buildTemplateVars(briefing, copy, bgDataUrl)
     let imageDataUrl: string
     if (formato === '9:16') {

@@ -1,10 +1,6 @@
-import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Logo } from '../imports/Logo1'
-import { Lock, ArrowRight, MessageSquare, Eye, EyeOff, Bot, Construction } from 'lucide-react'
-
-const PASSWORD = 'seazonedesign'
-const SESSION_KEY = 'hub_auth'
+import { ArrowRight, MessageSquare, Bot, Construction } from 'lucide-react'
 
 const APPS = [
   {
@@ -41,122 +37,6 @@ const APPS = [
 
 export default function Hub() {
   const navigate = useNavigate()
-  const [authenticated, setAuthenticated] = useState(false)
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState(false)
-  const [showPassword, setShowPassword] = useState(false)
-  const [shaking, setShaking] = useState(false)
-
-  useEffect(() => {
-    if (sessionStorage.getItem(SESSION_KEY) === '1') {
-      setAuthenticated(true)
-    }
-  }, [])
-
-  const handleLogin = () => {
-    if (password === PASSWORD) {
-      sessionStorage.setItem(SESSION_KEY, '1')
-      setAuthenticated(true)
-      setError(false)
-    } else {
-      setError(true)
-      setShaking(true)
-      setTimeout(() => setShaking(false), 500)
-    }
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') handleLogin()
-  }
-
-  if (!authenticated) {
-    return (
-      <div
-        className="min-h-screen flex flex-col items-center justify-center px-4"
-        style={{ backgroundColor: 'var(--background)' }}
-      >
-        <div
-          className={`w-full max-w-sm animate-fade-in-up ${shaking ? 'animate-shake' : ''}`}
-          style={{
-            backgroundColor: 'var(--card)',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-xl)',
-            boxShadow: 'var(--elevation-md)',
-            overflow: 'hidden',
-          }}
-        >
-          {/* Header */}
-          <div
-            className="px-8 pt-8 pb-6 flex flex-col items-center gap-4"
-            style={{ background: 'linear-gradient(135deg, var(--cores-azul-50) 0%, rgba(0,85,255,0.03) 100%)' }}
-          >
-            <div style={{ width: 140 }}>
-              <Logo variant="dark" />
-            </div>
-            <div className="flex flex-col items-center gap-1">
-              <span className="h3" style={{ color: 'var(--foreground)' }}>Design Hub</span>
-              <span className="body-regular" style={{ color: 'var(--muted-foreground)' }}>
-                Acesso restrito à equipe Seazone
-              </span>
-            </div>
-          </div>
-
-          {/* Form */}
-          <div className="px-8 pb-8 pt-6 flex flex-col gap-4">
-            <div className="flex flex-col gap-1.5">
-              <label className="detail-medium" style={{ color: 'var(--muted-foreground)' }}>
-                Senha de acesso
-              </label>
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => { setPassword(e.target.value); setError(false) }}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Digite a senha..."
-                  className="w-full px-4 py-2.5 pr-10 rounded-xl body"
-                  style={{
-                    backgroundColor: 'var(--input)',
-                    border: `1.5px solid ${error ? 'var(--destructive, #EF4444)' : 'var(--border)'}`,
-                    color: 'var(--foreground)',
-                    outline: 'none',
-                    transition: 'border-color 0.2s',
-                  }}
-                  autoFocus
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2"
-                  style={{ color: 'var(--muted-foreground)', background: 'none', border: 'none', cursor: 'pointer' }}
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-              {error && (
-                <span className="detail-regular" style={{ color: 'var(--destructive, #EF4444)' }}>
-                  Senha incorreta. Tente novamente.
-                </span>
-              )}
-            </div>
-
-            <button
-              onClick={handleLogin}
-              className="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-full transition-all hover:opacity-90 active:scale-95 hover-lift"
-              style={{
-                backgroundColor: 'var(--primary)',
-                color: 'var(--primary-foreground)',
-                border: 'none',
-              }}
-            >
-              <Lock size={15} />
-              <span className="p-ui">Entrar</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--background)' }}>

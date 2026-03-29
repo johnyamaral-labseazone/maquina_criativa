@@ -884,7 +884,7 @@ const styleCache = new Map<string, string>()
 // Generate creative (with optional reference-based style matching)
 app.post('/api/campanha/generate-creative', async (req, res) => {
   try {
-    const { copy, formato, referenceImages, assetsContext, produto } = req.body
+    const { copy, formato, referenceImages, assetsContext, produto, backgroundImage } = req.body
 
     // 1. User-provided references (uploaded in Assets tab)
     const userRefs: string[] = Array.isArray(referenceImages) ? referenceImages : []
@@ -905,14 +905,18 @@ app.post('/api/campanha/generate-creative', async (req, res) => {
     let bgDataUrl = ''
     let generator  = 'ai-direct'
 
-    if (hasRef) {
-      // ── Designer uses reference image directly as background ─────────────────
-      // No AI generation — preserves visual identity of the reference piece.
+    if (backgroundImage) {
+      // Foto do imóvel enviada na aba Assets: usa como fundo do criativo
+      bgDataUrl = backgroundImage
+      generator = 'property-photo'
+      console.log('[creative] ✅ Usando foto do imóvel como fundo')
+    } else if (hasRef) {
+      // Referência de estilo da aba Assets: reproduz visualmente o material enviado
       bgDataUrl = allRefs[0]
       generator = 'reference-direct'
-      console.log('[creative] ✅ Usando imagem de referência diretamente como fundo')
+      console.log('[creative] ✅ Usando imagem de referência como fundo')
     } else {
-      // No reference — generate with AI
+      // Sem referência — gera com IA
       const productHint = productEntry ? `. Visual style: ${productEntry.designerContext.slice(0, 300)}` : ''
       bgDataUrl = await generateBackground(`${bgPrompt}${productHint}`, formato ?? '4:5').catch(() => '')
       generator = bgDataUrl ? 'ai-direct' : 'none'

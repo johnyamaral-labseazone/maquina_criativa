@@ -314,8 +314,8 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
           }
         }
       }
-      get()._patch('designer', { creatives, status: 'working', progress: 5, message: driveImageUrls.length > 0 ? 'Aplicando fotos nas peças...' : 'Gerando imagens com IA...' })
-      get()._log('designer', driveImageUrls.length > 0 ? `${driveImageUrls.length} foto(s) para ${creatives.length} criativos` : `Iniciando geração IA de ${creatives.length} imagens`)
+      get()._patch('designer', { creatives, status: 'working', progress: 5, message: driveImageUrls.length > 0 ? 'Compondo criativos com fotos do imóvel e referências...' : 'Gerando imagens com IA...' })
+      get()._log('designer', driveImageUrls.length > 0 ? `${driveImageUrls.length} foto(s) + ${refs.length} referência(s) de estilo para ${creatives.length} criativos` : `Iniciando geração IA de ${creatives.length} imagens`)
 
       const total = creatives.length
       let imgDone = 0
@@ -327,18 +327,21 @@ export const useCampanha2Store = create<Campanha2Store>((set, get) => ({
         }))
         try {
           let img = ''
-          if (driveImageUrls.length > 0) {
-            // Use Drive photo directly (cycle through by estrutura)
-            img = driveImageUrls[(cr.estrutura - 1) % driveImageUrls.length]
-          } else {
-            // AI generation fallback
-            const r = await apiFetch('/api/campanha/generate-creative', {
-              copy: cr.copy, formato: cr.formato, referenceImages: refs, assetsContext: s.assetsContext,
-              produto: get().atendimento.result?.produto ?? '',
-            })
-            const d = await r.json() as { imageDataUrl?: string }
-            img = d.imageDataUrl ?? ''
-          }
+          // Always call generate-creative with copy + references + optional background photo
+          // This ensures the redator's text is applied professionally over the visual reference
+          const backgroundImage = driveImageUrls.length > 0
+            ? driveImageUrls[(cr.estrutura - 1) % driveImageUrls.length]
+            : undefined
+          const r = await apiFetch('/api/campanha/generate-creative', {
+            copy: cr.copy,
+            formato: cr.formato,
+            referenceImages: refs,
+            assetsContext: s.assetsContext,
+            produto: get().atendimento.result?.produto ?? '',
+            backgroundImage,
+          })
+          const d = await r.json() as { imageDataUrl?: string }
+          img = d.imageDataUrl ?? ''
           imgDone++
           set((st) => ({
             designer: {
