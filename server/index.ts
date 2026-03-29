@@ -1216,51 +1216,148 @@ function buildTemplateVars(briefing: Record<string, string> | null, copy: Record
 // Cache analyzed styles to avoid re-analyzing the same reference for every creative
 const styleCache = new Map<string, string>()
 
+// Build a complete creative prompt for AI image generation
+// The AI generates the full advertisement (background + text + layout) in one shot
+function buildCreativePrompt(params: {
+  copy: Record<string, string>
+  briefing: Record<string, string> | null
+  formato: string
+  assetsContext: string
+  styleDescription: string
+  hasBackgroundPhoto: boolean
+}): string {
+  const { copy, briefing, formato, assetsContext, styleDescription, hasBackgroundPhoto } = params
+  const formatDesc = formato === '9:16' ? 'vertical story 9:16 (1080x1920px)' : 'portrait feed 4:5 (1080x1350px)'
+  const headline = copy?.headline || ''
+  const body = copy?.body || ''
+  const cta = copy?.cta || 'Saiba mais'
+  const location = briefing?.localizacao || ''
+  const investment = briefing?.valorInvestimento || ''
+  const monthlyReturn = briefing?.rendaMensal || ''
+  const produto = briefing?.produto || ''
+
+  const bgInstruction = hasBackgroundPhoto
+    ? 'Use the provided reference photo as the property background, preserving its composition and atmosphere.'
+    : 'Generate aerial drone photography of a luxury coastal residential property in Florianópolis Brazil — turquoise Atlantic ocean, modern architecture, golden hour warm lighting.'
+
+  const styleInstruction = styleDescription
+    ? `VISUAL STYLE (reproduce faithfully): ${styleDescription}`
+    : 'VISUAL STYLE: dark luxury real estate advertisement — navy blue overlay (#0A1628) transitioning from photo to text area, premium minimalist layout, white and green (#5EA500) color accents.'
+
+  const financialElements = [
+    investment && `- Investment box (green border #5EA500, bottom section): "Invista a partir de ${investment}"`,
+    monthlyReturn && `- Return box (green border #5EA500, bottom section): "Projeção de ${monthlyReturn}/mês"`,
+  ].filter(Boolean).join('\n')
+
+  const contextHint = assetsContext ? `\nADDITIONAL CONTEXT: ${assetsContext}` : ''
+
+  return `Create a complete professional real estate advertisement image in ${formatDesc} for the Seazone brand.
+
+BACKGROUND: ${bgInstruction}
+
+${styleInstruction}
+
+PRODUCT: ${produto}
+LOCATION: ${location}
+${contextHint}
+
+TEXT ELEMENTS — render all text clearly and legibly directly in the image:
+- HEADLINE (large, bold, white, prominent center-bottom): "${headline}"
+- BODY TEXT (medium size, white/light gray, below headline): "${body}"
+- CTA (green #5EA500, underlined or button style): "${cta}"
+${location ? `- LOCATION BADGE (top-right, white pill with location pin icon): "${location}"` : ''}
+${financialElements}
+- SEAZONE WORDMARK (bottom area, white, clean sans-serif lettering)
+
+LAYOUT STRUCTURE:
+- Top 60%: property photo/background with dark gradient overlay fading into bottom section
+- Bottom 40%: dark navy (#0A1628) content area with all text elements
+- "LANÇAMENTO" red diagonal ribbon (top-left corner)
+
+QUALITY REQUIREMENTS: ultra high resolution, crisp legible text rendering, photorealistic background, professional advertisement standard, no watermarks, no blurry text.`
+}
+
 app.post('/api/campanha/generate-creative', async (req, res) => {
   try {
     const { copy, formato, briefing, referenceImages, assetsContext, backgroundImage } = req.body
     const refs: string[] = Array.isArray(referenceImages) ? referenceImages : []
-    const hasRef = refs.length > 0
 
-    const contextHint = assetsContext ? `, ${assetsContext}` : ''
-    const bgPrompt = `Seazone real estate Brazil, ${copy?.headline || ''}, luxury coastal property aerial drone view, natural sunlight, turquoise ocean${contextHint}, no people, no text overlay, no watermarks`
+    // The primary visual reference: property photo takes priority over style reference
+    const primaryRef: string | null = backgroundImage || refs[0] || null
 
-    console.log(`[creative] Gerando — formato: ${formato}, refs: ${refs.length}, backgroundImage: ${!!backgroundImage}, headline: "${copy?.headline?.slice(0,30)}"`)
+    console.log(`[creative] Gerando — formato: ${formato}, refs: ${refs.length}, backgroundPhoto: ${!!backgroundImage}, headline: "${copy?.headline?.slice(0,30)}"`)
 
-    let bgDataUrl = ''
-    let generator = 'template+gradient'
-
-    if (backgroundImage) {
-      // ── Foto do imóvel como fundo: preserva a identidade visual do imóvel,
-      // o template HTML sobrepõe os textos do redator profissionalmente.
-      bgDataUrl = backgroundImage
-      generator = 'template+property-photo'
-      console.log('[creative] ✅ Usando foto do imóvel como fundo — aplicando copy do redator')
-    } else if (hasRef) {
-      // ── Referência de estilo como fundo: reproduz visualmente o material
-      // enviado na aba Assets, com os textos do redator aplicados por cima.
-      bgDataUrl = refs[0]
-      generator = 'template+reference-direct'
-      console.log('[creative] ✅ Usando imagem de referência como fundo — aplicando copy do redator')
-    } else {
-      // Sem referência — gera fundo com IA
-      bgDataUrl = await Promise.race([
-        generateBackground(bgPrompt, formato ?? '4:5'),
-        new Promise<string>((_, reject) => setTimeout(() => reject(new Error('Background timeout 120s')), 120000)),
-      ]).catch((err) => {
-        console.warn('[creative] Background falhou, usando gradiente:', String(err).slice(0, 80))
-        return ''
-      })
-      generator = bgDataUrl ? 'template+ai' : 'template+gradient'
+    // 1. Analyze reference style (cached by first 100 chars of data URL)
+    let styleDescription = ''
+    if (primaryRef) {
+      const cacheKey = primaryRef.slice(0, 100)
+      if (styleCache.has(cacheKey)) {
+        styleDescription = styleCache.get(cacheKey)!
+        console.log('[creative] Style cache hit')
+      } else {
+        styleDescription = await analyzeReferenceStyle(primaryRef)
+        if (styleDescription) styleCache.set(cacheKey, styleDescription)
+      }
     }
 
-    // Renderiza o template HTML com o copy do redator sobreposto ao fundo
-    const vars = buildTemplateVars(briefing, copy, bgDataUrl)
-    let imageDataUrl: string
-    if (formato === '9:16') {
-      imageDataUrl = await renderHtmlToImage(fillTemplate('creative-story.html', vars), 1080, 1920)
-    } else {
-      imageDataUrl = await renderHtmlToImage(fillTemplate('creative-feed.html', vars), 1080, 1350)
+    // 2. Build the full creative prompt (background + text + layout in one prompt)
+    const creativePrompt = buildCreativePrompt({
+      copy,
+      briefing,
+      formato: formato ?? '4:5',
+      assetsContext: assetsContext ?? '',
+      styleDescription,
+      hasBackgroundPhoto: !!backgroundImage,
+    })
+
+    // 3. Generate complete creative via AI — priority: Gemini styled > FAL.AI Flux > Mystic
+    let imageDataUrl = ''
+    let generator = 'none'
+
+    // Try Gemini with style reference (best for text rendering + style fidelity)
+    if (primaryRef) {
+      try {
+        const { base64, mimeType } = await generateWithNanobananaStyled(creativePrompt, formato ?? '4:5', primaryRef, styleDescription)
+        imageDataUrl = `data:${mimeType};base64,${base64}`
+        generator = 'gemini-styled'
+        console.log('[creative] ✅ Gemini styled generation OK')
+      } catch (err) {
+        console.warn('[creative] Gemini styled falhou:', String(err).slice(0, 80))
+      }
+    }
+
+    // Fallback: Gemini without reference
+    if (!imageDataUrl && googleAI) {
+      try {
+        const { base64, mimeType } = await generateWithNanobanana(creativePrompt, formato ?? '4:5')
+        imageDataUrl = `data:${mimeType};base64,${base64}`
+        generator = 'gemini'
+        console.log('[creative] ✅ Gemini generation OK')
+      } catch (err) {
+        console.warn('[creative] Gemini falhou:', String(err).slice(0, 80))
+      }
+    }
+
+    // Fallback: FAL.AI Flux Dev
+    if (!imageDataUrl) {
+      try {
+        imageDataUrl = await generateWithFalFlux(creativePrompt, formato ?? '4:5', 'fal-ai/flux/dev')
+        generator = 'fal-flux-dev'
+        console.log('[creative] ✅ FAL.AI Flux Dev OK')
+      } catch (err) {
+        console.warn('[creative] FAL.AI Flux Dev falhou:', String(err).slice(0, 80))
+      }
+    }
+
+    // Fallback: Freepik Mystic
+    if (!imageDataUrl) {
+      try {
+        imageDataUrl = await generateWithMystic(creativePrompt, formato ?? '4:5')
+        generator = 'mystic'
+        console.log('[creative] ✅ Mystic OK')
+      } catch (err) {
+        console.warn('[creative] Mystic falhou:', String(err).slice(0, 80))
+      }
     }
 
     console.log(`[creative] ✅ formato: ${formato}, generator: ${generator}`)

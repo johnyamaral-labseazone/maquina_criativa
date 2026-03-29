@@ -881,52 +881,141 @@ app.post('/api/campanha/generate-copies-full', async (req, res) => {
 // Style analysis cache
 const styleCache = new Map<string, string>()
 
-// Generate creative (with optional reference-based style matching)
+// Build a complete creative prompt for AI image generation
+// The AI generates the full advertisement (background + text + layout) in one shot
+function buildCreativePrompt(params: {
+  copy: Record<string, string>
+  briefing: Record<string, string> | null
+  formato: string
+  assetsContext: string
+  styleDescription: string
+  hasBackgroundPhoto: boolean
+}): string {
+  const { copy, briefing, formato, assetsContext, styleDescription, hasBackgroundPhoto } = params
+  const formatDesc = formato === '9:16' ? 'vertical story 9:16 (1080x1920px)' : 'portrait feed 4:5 (1080x1350px)'
+  const headline = copy?.headline || ''
+  const body = copy?.body || ''
+  const cta = copy?.cta || 'Saiba mais'
+  const location = (briefing as Record<string, string> | null)?.localizacao || ''
+  const investment = (briefing as Record<string, string> | null)?.valorInvestimento || ''
+  const monthlyReturn = (briefing as Record<string, string> | null)?.rendaMensal || ''
+  const produto = (briefing as Record<string, string> | null)?.produto || ''
+
+  const bgInstruction = hasBackgroundPhoto
+    ? 'Use the provided reference photo as the property background, preserving its composition and atmosphere.'
+    : 'Generate aerial drone photography of a luxury coastal residential property in Florianópolis Brazil — turquoise Atlantic ocean, modern architecture, golden hour warm lighting.'
+
+  const styleInstruction = styleDescription
+    ? `VISUAL STYLE (reproduce faithfully): ${styleDescription}`
+    : 'VISUAL STYLE: dark luxury real estate advertisement — navy blue overlay (#0A1628) transitioning from photo to text area, premium minimalist layout, white and green (#5EA500) color accents.'
+
+  const financialElements = [
+    investment && `- Investment box (green border #5EA500): "Invista a partir de ${investment}"`,
+    monthlyReturn && `- Return box (green border #5EA500): "Projeção de ${monthlyReturn}/mês"`,
+  ].filter(Boolean).join('\n')
+
+  const contextHint = assetsContext ? `\nADDITIONAL CONTEXT: ${assetsContext}` : ''
+
+  return `Create a complete professional real estate advertisement image in ${formatDesc} for the Seazone brand.
+
+BACKGROUND: ${bgInstruction}
+
+${styleInstruction}
+
+PRODUCT: ${produto}
+LOCATION: ${location}
+${contextHint}
+
+TEXT ELEMENTS — render all text clearly and legibly directly in the image:
+- HEADLINE (large, bold, white, prominent): "${headline}"
+- BODY TEXT (medium, white/light gray): "${body}"
+- CTA (green #5EA500): "${cta}"
+${location ? `- LOCATION BADGE (top-right pill): "${location}"` : ''}
+${financialElements}
+- SEAZONE WORDMARK (bottom, white sans-serif)
+
+LAYOUT: Top 60% property photo with dark gradient overlay. Bottom 40% dark navy (#0A1628) content area. "LANÇAMENTO" red ribbon top-left corner.
+
+QUALITY: Ultra high resolution, crisp legible text, photorealistic background, professional advertisement. No watermarks.`
+}
+
+// Generate creative — AI generates the complete advertisement image in one shot (no HTML templates)
 app.post('/api/campanha/generate-creative', async (req, res) => {
   try {
-    const { copy, formato, referenceImages, assetsContext, produto, backgroundImage } = req.body
+    const { copy, formato, referenceImages, assetsContext, produto, backgroundImage, briefing } = req.body
 
-    // 1. User-provided references (uploaded in Assets tab)
     const userRefs: string[] = Array.isArray(referenceImages) ? referenceImages : []
-
-    // 2. Detect product and load product assets from disk
     const productEntry = detectProductContext(produto ?? copy?.headline ?? '')
-    const productAssets: string[] = productEntry?.assetsFolder
-      ? loadProductAssets(productEntry.assetsFolder)
-      : []
-
-    // Priority: user refs → product assets from disk → text-only
+    const productAssets: string[] = productEntry?.assetsFolder ? loadProductAssets(productEntry.assetsFolder) : []
     const allRefs = userRefs.length > 0 ? userRefs : productAssets
-    const hasRef  = allRefs.length > 0
 
-    const contextHint = assetsContext ? `, ${assetsContext}` : ''
-    const bgPrompt = `Seazone luxury real estate Florianópolis Brazil, ${copy?.headline || ''}, aerial drone photography of coastal residential property, rooftop pool or beach access, turquoise Atlantic ocean, lush tropical vegetation, modern architecture, golden hour warm natural lighting${contextHint}, professional advertisement photography, ultra high quality, no people, no text, no watermarks, no UI elements`
+    // Primary visual reference: property photo > style reference
+    const primaryRef: string | null = backgroundImage || allRefs[0] || null
 
-    let bgDataUrl = ''
-    let generator  = 'ai-direct'
+    console.log(`[creative] Gerando — formato: ${formato}, refs: ${allRefs.length}, backgroundPhoto: ${!!backgroundImage}, headline: "${copy?.headline?.slice(0,30)}"`)
 
-    if (backgroundImage) {
-      // Foto do imóvel enviada na aba Assets: usa como fundo do criativo
-      bgDataUrl = backgroundImage
-      generator = 'property-photo'
-      console.log('[creative] ✅ Usando foto do imóvel como fundo')
-    } else if (hasRef) {
-      // Referência de estilo da aba Assets: reproduz visualmente o material enviado
-      bgDataUrl = allRefs[0]
-      generator = 'reference-direct'
-      console.log('[creative] ✅ Usando imagem de referência como fundo')
-    } else {
-      // Sem referência — gera com IA
-      const productHint = productEntry ? `. Visual style: ${productEntry.designerContext.slice(0, 300)}` : ''
-      bgDataUrl = await generateBackground(`${bgPrompt}${productHint}`, formato ?? '4:5').catch(() => '')
-      generator = bgDataUrl ? 'ai-direct' : 'none'
+    // 1. Analyze reference style (cached)
+    let styleDescription = ''
+    if (primaryRef) {
+      const cacheKey = primaryRef.slice(0, 100)
+      if (styleCache.has(cacheKey)) {
+        styleDescription = styleCache.get(cacheKey)!
+      } else {
+        styleDescription = await analyzeReferenceStyle(primaryRef)
+        if (styleDescription) styleCache.set(cacheKey, styleDescription)
+      }
+    }
+
+    // 2. Build the full creative prompt
+    const creativePrompt = buildCreativePrompt({
+      copy,
+      briefing: briefing ?? null,
+      formato: formato ?? '4:5',
+      assetsContext: assetsContext ?? '',
+      styleDescription,
+      hasBackgroundPhoto: !!backgroundImage,
+    })
+
+    // 3. Generate complete creative via AI — priority: Gemini styled > Gemini > FAL.AI > Mystic
+    let imageDataUrl = ''
+    let generator = 'none'
+
+    if (primaryRef) {
+      try {
+        const { base64, mimeType } = await generateWithNanobananaStyled(creativePrompt, formato ?? '4:5', primaryRef, styleDescription)
+        imageDataUrl = `data:${mimeType};base64,${base64}`
+        generator = 'gemini-styled'
+        console.log('[creative] ✅ Gemini styled OK')
+      } catch (err) {
+        console.warn('[creative] Gemini styled falhou:', String(err).slice(0, 80))
+      }
+    }
+
+    if (!imageDataUrl && googleAI) {
+      try {
+        const { base64, mimeType } = await generateWithNanobanana(creativePrompt, formato ?? '4:5')
+        imageDataUrl = `data:${mimeType};base64,${base64}`
+        generator = 'gemini'
+        console.log('[creative] ✅ Gemini OK')
+      } catch (err) {
+        console.warn('[creative] Gemini falhou:', String(err).slice(0, 80))
+      }
+    }
+
+    if (!imageDataUrl) {
+      try {
+        imageDataUrl = await generateBackground(creativePrompt, formato ?? '4:5')
+        generator = 'fal-or-mystic'
+        console.log('[creative] ✅ Background generator OK')
+      } catch (err) {
+        console.warn('[creative] Background generator falhou:', String(err).slice(0, 80))
+      }
     }
 
     res.json({
-      imageDataUrl: bgDataUrl,
+      imageDataUrl,
       generator,
       product: productEntry?.triggers[0] ?? null,
-      usedProductAssets: productAssets.length > 0,
     })
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
