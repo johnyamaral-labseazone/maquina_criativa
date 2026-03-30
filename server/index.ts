@@ -1274,7 +1274,18 @@ LAYOUT STRUCTURE:
 - Bottom 40%: dark navy (#0A1628) content area with all text elements
 - "LANÇAMENTO" red diagonal ribbon (top-left corner)
 
-QUALITY REQUIREMENTS: ultra high resolution, crisp legible text rendering, photorealistic background, professional advertisement standard, no watermarks, no blurry text.`
+QUALITY REQUIREMENTS: ultra high resolution, crisp legible text rendering, photorealistic background, professional advertisement standard.
+
+NEGATIVE PROMPT — absolutely avoid:
+- Blurry, distorted, illegible or overlapping text
+- Serif fonts (use only clean sans-serif)
+- Watermarks or logos from other brands
+- Excessive vignette or dark edges obscuring content
+- People without professional context
+- Beach distance in meters or minutes
+- Low contrast text against background
+- Cluttered layout with too many competing elements
+- Gradient banding or compression artifacts`
 }
 
 app.post('/api/campanha/generate-creative', async (req, res) => {

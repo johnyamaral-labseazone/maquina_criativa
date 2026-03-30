@@ -936,7 +936,18 @@ ${financialElements}
 
 LAYOUT: Top 60% property photo with dark gradient overlay. Bottom 40% dark navy (#0A1628) content area. "LANÇAMENTO" red ribbon top-left corner.
 
-QUALITY: Ultra high resolution, crisp legible text, photorealistic background, professional advertisement. No watermarks.`
+QUALITY: Ultra high resolution, crisp legible text, photorealistic background, professional advertisement.
+
+NEGATIVE PROMPT — absolutely avoid:
+- Blurry, distorted, illegible or overlapping text
+- Serif fonts (use only clean sans-serif)
+- Watermarks or logos from other brands
+- Excessive vignette or dark edges obscuring content
+- People without professional context
+- Beach distance in meters or minutes
+- Low contrast text against background
+- Cluttered layout with too many competing elements
+- Gradient banding or compression artifacts`
 }
 
 // Generate creative — AI generates the complete advertisement image in one shot (no HTML templates)
