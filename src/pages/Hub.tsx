@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
+import { useHistory2Store } from '../stores/history2Store'
 import { Logo } from '../imports/Logo1'
-import { ArrowRight, MessageSquare, Bot, Construction } from 'lucide-react'
+import { ArrowRight, MessageSquare, Bot, Construction, History, Clock, Palette } from 'lucide-react'
 
 const APPS = [
   {
@@ -34,6 +35,73 @@ const APPS = [
     destaque: false,
   },
 ]
+
+
+function RecentCampaigns() {
+  const { campaigns } = useHistory2Store()
+  const navigate = useNavigate()
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <History size={16} style={{ color: 'var(--muted-foreground)' }} />
+          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--foreground)' }}>Campanhas recentes</span>
+        </div>
+        {campaigns.length > 0 && (
+          <button
+            onClick={() => navigate('/campanha2')}
+            style={{ fontSize: 12, color: '#0055FF', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 500 }}
+          >
+            Ver todas →
+          </button>
+        )}
+      </div>
+
+      {campaigns.length === 0 ? (
+        <div className="flex items-center gap-3 px-5 py-4 rounded-2xl" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
+          <Clock size={16} style={{ color: 'var(--muted-foreground)', flexShrink: 0 }} />
+          <span style={{ fontSize: 13, color: 'var(--muted-foreground)' }}>Sem campanhas salvas ainda — comece pelo Campanha 2.0</span>
+        </div>
+      ) : (
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
+          {campaigns.slice(0, 3).map(c => (
+            <button
+              key={c.id}
+              onClick={() => navigate('/campanha2')}
+              className="text-left rounded-2xl overflow-hidden transition-all hover-lift"
+              style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)', cursor: 'pointer', padding: 0 }}
+            >
+              <div style={{ height: 100, backgroundColor: 'var(--secondary)', overflow: 'hidden', position: 'relative' }}>
+                {c.thumbnails?.[0] ? (
+                  <img src={c.thumbnails[0]} alt={c.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <Palette size={24} style={{ color: 'var(--muted-foreground)' }} />
+                  </div>
+                )}
+                {c.thumbnails?.length > 1 && (
+                  <div style={{ position: 'absolute', bottom: 6, right: 6, backgroundColor: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 99 }}>
+                    +{c.thumbnails.length - 1}
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-col gap-1 p-3">
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--foreground)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name || c.produto || 'Campanha'}</span>
+                <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>{c.date}</span>
+                <div className="flex gap-2 mt-1">
+                  {c.imagesCount > 0 && <span style={{ fontSize: 10, color: '#7C3AED', fontWeight: 600 }}>{c.imagesCount} img</span>}
+                  {c.videosCount > 0 && <span style={{ fontSize: 10, color: '#0891B2', fontWeight: 600 }}>{c.videosCount} vídeos</span>}
+                  {c.copiesCount > 0 && <span style={{ fontSize: 10, color: '#EA580C', fontWeight: 600 }}>{c.copiesCount} copies</span>}
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function Hub() {
   const navigate = useNavigate()
@@ -178,6 +246,7 @@ export default function Hub() {
               )
             })}
           </div>
+          <RecentCampaigns />
         </div>
       </main>
     </div>

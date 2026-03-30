@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useCampanha2Store } from '../../stores/campanha2Store'
 import type { AgentBase, CopySet2, Roteiro } from '../../stores/campanha2Store'
 import {
   CheckCircle2, AlertCircle, Clock, Loader2, ChevronRight,
-  Headphones, PenLine, Palette, Film, Award, Ban, Edit3, Check, RotateCcw
+  Headphones, PenLine, Palette, Film, Award, Ban, Edit3, Check, RotateCcw, Timer
 } from 'lucide-react'
 
 // ── Status badge ─────────────────────────────────────────────────────────────
@@ -13,6 +13,36 @@ const STATUS_CONFIG = {
   waiting: { label: 'Revisão',     color: '#EA580C',                   bg: 'rgba(234,88,12,0.1)',        icon: Edit3 },
   done:    { label: 'Concluído',   color: '#5EA500',                   bg: 'rgba(94,165,0,0.1)',         icon: CheckCircle2 },
   error:   { label: 'Erro',        color: '#EF4444',                   bg: 'rgba(239,68,68,0.1)',        icon: AlertCircle },
+
+const PHASE_ESTIMATES = { 1: 45, 2: 120, 3: 20 }
+
+function PhaseTimer({ active, estimate }: { active: boolean; estimate: number }) {
+  const [elapsed, setElapsed] = useState(0)
+  const ref = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    if (active) {
+      setElapsed(0)
+      ref.current = setInterval(() => setElapsed(e => e + 1), 1000)
+    } else {
+      if (ref.current) clearInterval(ref.current)
+    }
+    return () => { if (ref.current) clearInterval(ref.current) }
+  }, [active])
+
+  if (!active) return null
+  const remaining = Math.max(0, estimate - elapsed)
+  const pct = Math.min(100, (elapsed / estimate) * 100)
+  return (
+    <div className="flex items-center gap-2" style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>
+      <Timer size={10} />
+      <span>{elapsed}s</span>
+      {remaining > 0 && <span>· ~{remaining}s restantes</span>}
+      <div style={{ flex: 1, height: 2, backgroundColor: 'var(--border)', borderRadius: 99, overflow: 'hidden' }}>
+        <div style={{ width: pct + '%', height: '100%', backgroundColor: '#0055FF', borderRadius: 99, transition: 'width 1s linear' }} />
+      </div>
+    </div>
+  )
 }
 
 function StatusBadge({ status }: { status: AgentBase['status'] }) {
@@ -40,7 +70,7 @@ function AgentLogs({ logs }: { logs: AgentBase['logs'] }) {
   if (!logs.length) return null
   const logColors = { info: 'var(--muted-foreground)', success: '#5EA500', error: '#EF4444', action: '#EA580C' }
   return (
-    <div className="rounded-xl px-3 py-2 flex flex-col gap-0.5" style={{ backgroundColor: 'var(--secondary)', maxHeight: 80, overflowY: 'auto' }}>
+    <div className="rounded-xl px-3 py-2 flex flex-col gap-0.5" style={{ backgroundColor: 'var(--secondary)', maxHeight: 64, overflowY: 'auto' }}>
       {logs.slice(-5).map((l, i) => (
         <div key={i} className="flex gap-2" style={{ fontSize: 11, fontFamily: 'monospace' }}>
           <span style={{ color: 'var(--muted-foreground)', flexShrink: 0 }}>{l.time}</span>
@@ -52,7 +82,7 @@ function AgentLogs({ logs }: { logs: AgentBase['logs'] }) {
 }
 
 // ── Agent card ────────────────────────────────────────────────────────────────
-function AgentCard({
+function CompactAgentCard({
   icon: Icon, label, role, color, agent, children,
 }: {
   icon: React.ElementType; label: string; role: string; color: string; agent: AgentBase; children?: React.ReactNode
@@ -71,10 +101,10 @@ function AgentCard({
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+            className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
             style={{ backgroundColor: active ? color : 'var(--secondary)' }}
           >
-            <Icon size={18} style={{ color: active ? '#fff' : 'var(--muted-foreground)' }} />
+            <Icon size={15} style={{ color: active ? '#fff' : 'var(--muted-foreground)' }} />
           </div>
           <div className="flex flex-col" style={{ lineHeight: 1.3 }}>
             <span className="p-ui-medium" style={{ color: 'var(--foreground)' }}>{label}</span>
@@ -253,170 +283,180 @@ function RoteirosPreview({ roteirosNarrado, roteirosApresentadora }: RoteirosPre
 }
 
 // ── Main view ─────────────────────────────────────────────────────────────────
+
+// ── Live artifacts panel (right column) ──────────────────────────────────────
+function ArtifactsPanel() {
+  const { redator, designer, videoMaker, diretorArte } = useCampanha2Store()
+  const showCopyReview = redator.status === 'waiting'
+  const doneCreatives = designer.creatives.filter(c => c.status === 'done' && c.imageDataUrl)
+  const doneVideos = videoMaker.videos.filter(v => v.status === 'done' || v.videoUrl)
+  const hasArtifacts = showCopyReview || doneCreatives.length > 0 || doneVideos.length > 0 || diretorArte.status === 'done'
+
+  if (!hasArtifacts) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 min-h-64" style={{ padding: '2rem' }}>
+        <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ backgroundColor: 'var(--secondary)' }}>
+          <Palette size={20} style={{ color: 'var(--muted-foreground)' }} />
+        </div>
+        <div className="text-center">
+          <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--foreground)', margin: 0 }}>Os artefatos aparecem aqui</p>
+          <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: '4px 0 0' }}>Copies, imagens e vídeos gerados em tempo real</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      {showCopyReview && <CopyEditor />}
+
+      {designer.status !== 'idle' && designer.creatives.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <Palette size={14} style={{ color: '#7C3AED' }} />
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--foreground)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Imagens · {doneCreatives.length}/{designer.creatives.length}
+            </span>
+          </div>
+          <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))' }}>
+            {designer.creatives.map(cr => (
+              <div key={cr.id} className="relative rounded-xl overflow-hidden flex items-center justify-center"
+                style={{
+                  aspectRatio: cr.formato === '4:5' ? '4/5' : '9/16',
+                  backgroundColor: 'var(--secondary)',
+                  border: `1px solid ${cr.status === 'done' ? '#7C3AED30' : cr.status === 'error' ? '#EF444430' : 'var(--border)'}`,
+                }}>
+                {cr.status === 'done' && cr.imageDataUrl
+                  ? <img src={cr.imageDataUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  : <div className="flex flex-col items-center gap-1">
+                      {cr.status === 'generating'
+                        ? <Loader2 size={16} style={{ color: '#7C3AED', animation: 'spin 1s linear infinite' }} />
+                        : cr.status === 'error' ? <AlertCircle size={16} style={{ color: '#EF4444' }} />
+                        : <Clock size={14} style={{ color: 'var(--muted-foreground)' }} />}
+                    </div>}
+                <div className="absolute bottom-1 left-1 right-1 flex justify-between items-center">
+                  <span style={{ fontSize: 9, fontWeight: 600, color: 'rgba(255,255,255,0.9)', backgroundColor: 'rgba(0,0,0,0.5)', padding: '1px 4px', borderRadius: 4 }}>{cr.formato}</span>
+                  <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.9)', backgroundColor: 'rgba(0,0,0,0.5)', padding: '1px 4px', borderRadius: 4 }}>E{cr.estrutura}V{cr.variacao}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {videoMaker.status !== 'idle' && videoMaker.videos.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <Film size={14} style={{ color: '#0891B2' }} />
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--foreground)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Vídeos · {doneVideos.length}/{videoMaker.videos.length}
+            </span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {videoMaker.videos.map(v => (
+              <div key={v.id} className="flex items-center gap-3 p-3 rounded-xl"
+                style={{ backgroundColor: 'var(--secondary)', border: `1px solid ${v.status === 'done' ? 'rgba(8,145,178,0.2)' : 'var(--border)'}` }}>
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                  style={{ backgroundColor: v.status === 'done' ? 'rgba(8,145,178,0.15)' : 'var(--border)' }}>
+                  {v.status === 'done' ? <CheckCircle2 size={14} style={{ color: '#0891B2' }} />
+                    : v.status === 'generating' ? <Loader2 size={14} style={{ color: '#0891B2', animation: 'spin 1s linear infinite' }} />
+                    : <Clock size={14} style={{ color: 'var(--muted-foreground)' }} />}
+                </div>
+                <div className="flex flex-col flex-1 min-w-0">
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--foreground)' }}>{v.tipo === 'narrado' ? 'Narrado' : 'Apresentadora'} E{v.estrutura}</span>
+                  <span style={{ fontSize: 10, color: 'var(--muted-foreground)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.roteiro?.titulo ?? '—'}</span>
+                </div>
+                {v.videoUrl && (
+                  <a href={v.videoUrl} target="_blank" rel="noreferrer"
+                    style={{ fontSize: 10, color: '#0891B2', fontWeight: 600, flexShrink: 0, textDecoration: 'none' }}>Ver</a>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {diretorArte.status === 'done' && diretorArte.review && (
+        <div className="flex flex-col gap-3 p-4 rounded-2xl"
+          style={{ border: `1.5px solid ${diretorArte.review.aprovado ? 'rgba(94,165,0,0.3)' : 'rgba(239,68,68,0.3)'}`, backgroundColor: 'var(--card)' }}>
+          <div className="flex items-center justify-between">
+            <span style={{ fontWeight: 700, color: diretorArte.review.aprovado ? '#5EA500' : '#EF4444', fontSize: 13 }}>
+              {diretorArte.review.aprovado ? '✓ Campanha aprovada' : '⚠ Ajustes necessários'}
+            </span>
+            <div className="flex flex-col items-center justify-center w-12 h-12 rounded-xl"
+              style={{ backgroundColor: diretorArte.review.aprovado ? 'rgba(94,165,0,0.1)' : 'rgba(239,68,68,0.1)' }}>
+              <span style={{ fontSize: '1.1rem', fontWeight: 800, color: diretorArte.review.aprovado ? '#5EA500' : '#EF4444' }}>{diretorArte.review.score}</span>
+              <span style={{ fontSize: 8, color: 'var(--muted-foreground)' }}>/100</span>
+            </div>
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: 0 }}>{diretorArte.review.relatorio}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function AgenciaView() {
   const state = useCampanha2Store()
   const { atendimento, redator, designer, videoMaker, diretorArte, cancelAgency, restartWithFeedback, campaignName } = state
 
-  const showCopyReview = redator.status === 'waiting'
+  const phase1Active = atendimento.status === 'working' || redator.status === 'working'
+  const phase1Done = redator.status === 'done' || redator.status === 'waiting'
+  const phase2Active = designer.status === 'working' || videoMaker.status === 'working'
+  const phase2Done = designer.status === 'done' && videoMaker.status === 'done'
+  const phase3Active = diretorArte.status === 'working'
+  const phase3Done = diretorArte.status === 'done'
 
   return (
-    <div className="flex flex-col gap-6 max-w-3xl mx-auto">
-      {/* Header */}
+    <div className="flex flex-col gap-4 w-full max-w-6xl mx-auto">
       <div className="flex items-center justify-between gap-3">
         <div className="flex flex-col gap-0.5">
-          <h2 style={{ color: 'var(--foreground)', fontSize: '1.3rem', fontWeight: 700 }}>
-            Agência IA em execução
-          </h2>
-          {campaignName && (
-            <span className="body-small" style={{ color: 'var(--muted-foreground)' }}>{campaignName}</span>
-          )}
+          <h2 style={{ color: 'var(--foreground)', fontSize: '1.3rem', fontWeight: 700, margin: 0 }}>Agência IA em execução</h2>
+          {campaignName && <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>{campaignName}</span>}
         </div>
         {(atendimento.status !== 'idle' && diretorArte.status !== 'done') && (
-          <button
-            onClick={cancelAgency}
+          <button onClick={cancelAgency}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl transition-all hover:opacity-80"
-            style={{ backgroundColor: 'var(--secondary)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted-foreground)', fontSize: 12 }}
-          >
+            style={{ backgroundColor: 'var(--secondary)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted-foreground)', fontSize: 12 }}>
             <Ban size={13} /> Cancelar geração
           </button>
         )}
       </div>
 
-      {/* ── Fase 1: Inteligência ── */}
-      <div className="flex flex-col gap-3">
-        <PhaseLabel number={1} label="Inteligência" active={atendimento.status === 'working' || redator.status === 'working'} done={redator.status === 'done' || redator.status === 'waiting'} />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <AgentCard icon={Headphones} label="Atendimento" role="Lê e organiza o briefing" color="#0055FF" agent={atendimento}>
-            {atendimento.status === 'done' && atendimento.result && (
-              <div className="px-3 py-2 rounded-xl text-xs flex flex-col gap-0.5" style={{ backgroundColor: 'rgba(0,85,255,0.05)', border: '1px solid rgba(0,85,255,0.15)' }}>
-                <span style={{ fontWeight: 600, color: '#0055FF' }}>{atendimento.result.produto}</span>
-                <span style={{ color: 'var(--muted-foreground)' }}>{atendimento.result.localizacao}</span>
-              </div>
+      <div className="flex gap-5 items-start" style={{ flexWrap: 'wrap' }}>
+        {/* LEFT: Agent progress */}
+        <div className="flex flex-col gap-4 flex-shrink-0" style={{ width: 'clamp(280px, 340px, 100%)' }}>
+          <div className="flex flex-col gap-2">
+            <PhaseLabel number={1} label="Inteligência" active={phase1Active} done={phase1Done} estimate={PHASE_ESTIMATES[1]} />
+            <CompactAgentCard icon={Headphones} label="Atendimento" role="Lê e organiza o briefing" color="#0055FF" agent={atendimento} />
+            <CompactAgentCard icon={PenLine} label="Redator" role="Cria copies e roteiros" color="#EA580C" agent={redator} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <PhaseLabel number={2} label="Criação" active={phase2Active} done={phase2Done} estimate={PHASE_ESTIMATES[2]} />
+            <CompactAgentCard icon={Palette} label="Designer" role="Gera imagens nos formatos" color="#7C3AED" agent={designer} />
+            <CompactAgentCard icon={Film} label="Vídeo Maker" role="Gera vídeos narrados" color="#0891B2" agent={videoMaker} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <PhaseLabel number={3} label="Direção de Arte" active={phase3Active} done={phase3Done} estimate={PHASE_ESTIMATES[3]} />
+            <CompactAgentCard icon={Award} label="Diretor de Arte" role="Revisa e valida a campanha" color="#059669" agent={diretorArte} />
+            {phase3Done && diretorArte.review && !diretorArte.review.aprovado && diretorArte.review.problemas.length > 0 && (
+              <RestartPanel problemas={diretorArte.review.problemas} onRestart={restartWithFeedback} />
             )}
-          </AgentCard>
-
-          <AgentCard icon={PenLine} label="Redator" role="Cria copies e roteiros" color="#EA580C" agent={redator}>
-            {redator.status === 'done' && redator.copies && (
-              <div className="px-3 py-2 rounded-xl text-xs flex flex-col gap-0.5" style={{ backgroundColor: 'rgba(234,88,12,0.05)', border: '1px solid rgba(234,88,12,0.15)' }}>
-                <span style={{ color: '#EA580C', fontWeight: 600 }}>{redator.copies.length} copies criadas</span>
-                {redator.roteirosNarrado.length > 0 && <span style={{ color: 'var(--muted-foreground)' }}>+ {redator.roteirosNarrado.length} roteiro(s) narrado</span>}
-              </div>
-            )}
-          </AgentCard>
+          </div>
         </div>
 
-        {/* Copy Review Panel */}
-        {showCopyReview && <CopyEditor />}
-      </div>
-
-      {/* ── Fase 2: Criação ── */}
-      <div className="flex flex-col gap-3">
-        <PhaseLabel number={2} label="Criação" active={designer.status === 'working' || videoMaker.status === 'working'} done={designer.status === 'done' && videoMaker.status === 'done'} />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <AgentCard icon={Palette} label="Designer" role="Cria imagens e carrosseis" color="#7C3AED" agent={designer}>
-            {designer.status !== 'idle' && (
-              <div className="flex gap-1 flex-wrap">
-                {designer.creatives.map(cr => (
-                  <div
-                    key={cr.id}
-                    className="flex items-center justify-center rounded-lg"
-                    style={{
-                      width: 32, height: 32,
-                      backgroundColor: cr.status === 'done' && cr.imageDataUrl ? 'transparent' : 'var(--secondary)',
-                      border: `1px solid ${cr.status === 'done' ? '#5EA50040' : cr.status === 'error' ? '#EF444440' : 'var(--border)'}`,
-                      overflow: 'hidden',
-                    }}
-                  >
-                    {cr.status === 'done' && cr.imageDataUrl
-                      ? <img src={cr.imageDataUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      : <span style={{ fontSize: 8, color: 'var(--muted-foreground)' }}>{cr.status === 'generating' ? '⟳' : cr.status === 'error' ? '✗' : '·'}</span>
-                    }
-                  </div>
-                ))}
-              </div>
-            )}
-          </AgentCard>
-
-          <AgentCard icon={Film} label="Vídeo Maker" role="Gera vídeos narrados e com apresentadora" color="#0891B2" agent={videoMaker}>
-            {videoMaker.status !== 'idle' && videoMaker.videos.length > 0 && (
-              <div className="flex flex-col gap-1">
-                {videoMaker.videos.map(v => (
-                  <div key={v.id} className="flex items-center gap-2 text-xs" style={{ color: v.status === 'done' ? '#5EA500' : v.status === 'error' ? '#EF4444' : 'var(--muted-foreground)' }}>
-                    <span>{v.status === 'done' ? '✓' : v.status === 'generating' ? '⟳' : v.status === 'error' ? '✗' : '·'}</span>
-                    <span>{v.tipo === 'narrado' ? 'Narrado' : 'Apresentadora'} E{v.estrutura}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </AgentCard>
-        </div>
-      </div>
-
-      {/* ── Fase 3: Direção ── */}
-      <div className="flex flex-col gap-3">
-        <PhaseLabel number={3} label="Direção de Arte" active={diretorArte.status === 'working'} done={diretorArte.status === 'done'} />
-        <AgentCard icon={Award} label="Diretor de Arte" role="Revisa tudo e garante aderência ao briefing" color="#059669" agent={diretorArte}>
-          {diretorArte.status === 'done' && diretorArte.review && (
-            <div
-              className="flex flex-col gap-2 p-3 rounded-xl"
-              style={{ backgroundColor: diretorArte.review.aprovado ? 'rgba(94,165,0,0.05)' : 'rgba(239,68,68,0.05)', border: `1px solid ${diretorArte.review.aprovado ? 'rgba(94,165,0,0.2)' : 'rgba(239,68,68,0.2)'}` }}
-            >
-              <div className="flex items-center justify-between">
-                <span style={{ fontWeight: 700, color: diretorArte.review.aprovado ? '#5EA500' : '#EF4444', fontSize: 13 }}>
-                  {diretorArte.review.aprovado ? '✓ Campanha aprovada' : '⚠ Ajustes necessários'}
-                </span>
-                <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>Score: {diretorArte.review.score}/100</span>
-              </div>
-              <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: 0 }}>{diretorArte.review.relatorio}</p>
-              {!diretorArte.review.aprovado && diretorArte.review.problemas.length > 0 && (
-                <RestartPanel problemas={diretorArte.review.problemas} onRestart={restartWithFeedback} />
-              )}
+        {/* RIGHT: Live artifacts */}
+        <div className="flex-1 min-w-0" style={{ minWidth: 280 }}>
+          <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border)', backgroundColor: 'var(--card)', minHeight: 300 }}>
+            <div className="px-4 py-3" style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--secondary)' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted-foreground)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Artefatos gerados</span>
             </div>
-          )}
-        </AgentCard>
+            <div className="p-4">
+              <ArtifactsPanel />
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
-  )
-}
-
-function PhaseLabel({ number, label, active, done }: { number: number; label: string; active: boolean; done: boolean }) {
-  return (
-    <div className="flex items-center gap-2">
-      <div
-        className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0"
-        style={{
-          backgroundColor: done ? '#5EA500' : active ? '#0055FF' : 'var(--secondary)',
-          color: done || active ? '#fff' : 'var(--muted-foreground)',
-          fontSize: 10, fontWeight: 700,
-        }}
-      >
-        {done ? '✓' : number}
-      </div>
-      <span style={{ fontSize: 12, fontWeight: 700, color: done ? '#5EA500' : active ? 'var(--foreground)' : 'var(--muted-foreground)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</span>
-      <div style={{ flex: 1, height: 1, backgroundColor: 'var(--border)' }} />
-    </div>
-  )
-}
-
-function RestartPanel({ problemas, onRestart }: { problemas: string[]; onRestart(obs: string): void }) {
-  const [obs, setObs] = useState(problemas.join('. '))
-  return (
-    <div className="flex flex-col gap-2">
-      <p style={{ fontSize: 11, color: '#EF4444', margin: 0 }}>Problemas: {problemas.join(' · ')}</p>
-      <textarea
-        value={obs}
-        onChange={e => setObs(e.target.value)}
-        rows={2}
-        className="px-3 py-2 rounded-xl resize-none"
-        style={{ backgroundColor: 'var(--input)', border: '1px solid var(--border)', color: 'var(--foreground)', outline: 'none', fontSize: 12, width: '100%' }}
-      />
-      <button
-        onClick={() => onRestart(obs)}
-        className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl"
-        style={{ backgroundColor: '#EF4444', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
-      >
-        <RotateCcw size={12} /> Reiniciar com observações
-      </button>
     </div>
   )
 }
