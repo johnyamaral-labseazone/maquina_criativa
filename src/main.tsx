@@ -3,9 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { HashRouter, Routes, Route } from 'react-router-dom'
 import './index.css'
 import Hub from './pages/Hub'
-import App from './App'
 import AppWhatsapp from './AppWhatsapp'
-import AppCampanha from './AppCampanha'
 import AppCampanha2 from './AppCampanha2'
 
 createRoot(document.getElementById('root')!).render(
@@ -13,9 +11,7 @@ createRoot(document.getElementById('root')!).render(
     <HashRouter>
       <Routes>
         <Route path="/" element={<Hub />} />
-        <Route path="/variacoes" element={<App />} />
         <Route path="/whatsapp" element={<AppWhatsapp />} />
-        <Route path="/campanha" element={<AppCampanha />} />
         <Route path="/campanha2" element={<AppCampanha2 />} />
       </Routes>
     </HashRouter>

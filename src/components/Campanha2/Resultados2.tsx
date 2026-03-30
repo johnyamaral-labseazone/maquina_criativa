@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useCampanha2Store } from '../../stores/campanha2Store'
 import type { DesignerCreative, VideoOutput } from '../../stores/campanha2Store'
 import { useHistory2Store } from '../../stores/history2Store'
-import { CheckCircle2, AlertCircle, RotateCcw, Play, ArrowLeft, Save, Download, Film, X, AlertTriangle } from 'lucide-react'
+import { CheckCircle2, AlertCircle, RotateCcw, Play, ArrowLeft, Save, Download, Film, X, AlertTriangle, Clipboard, ClipboardCheck, LayoutGrid, Columns2 } from 'lucide-react'
 import { CreativeCard2 } from './CreativeCard2'
 
 export default function Resultados2() {
@@ -10,6 +10,8 @@ export default function Resultados2() {
   const { atendimento, redator, designer, videoMaker, diretorArte, setStep, campaignName, restartWithFeedback } = state
   const { save } = useHistory2Store()
   const [saved, setSaved] = useState(false)
+  const [clipboardCopied, setClipboardCopied] = useState(false)
+  const [comparisonMode, setComparisonMode] = useState(false)
 
   const review = diretorArte.review
   const images = designer.creatives.filter(c => c.status === 'done')
@@ -53,6 +55,23 @@ export default function Resultados2() {
     document.body.removeChild(a)
   }
 
+
+  const copyFirstImageToClipboard = async () => {
+    const first = images[0]
+    if (!first?.imageDataUrl) return
+    try {
+      const res = await fetch(first.imageDataUrl)
+      const blob = await res.blob()
+      await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })])
+      setClipboardCopied(true)
+      setTimeout(() => setClipboardCopied(false), 2500)
+    } catch {
+      await navigator.clipboard.writeText(first.imageDataUrl)
+      setClipboardCopied(true)
+      setTimeout(() => setClipboardCopied(false), 2500)
+    }
+  }
+
   const estruturas = [...new Set(images.map(c => c.estrutura))].sort()
 
   return (
@@ -75,6 +94,16 @@ export default function Resultados2() {
           >
             <ArrowLeft size={13} /> Nova campanha
           </button>
+          {images.length > 0 && (
+            <button
+              onClick={copyFirstImageToClipboard}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl transition-all hover:opacity-90"
+              style={{ backgroundColor: clipboardCopied ? '#5EA500' : 'var(--secondary)', border: '1px solid var(--border)', cursor: 'pointer', color: clipboardCopied ? '#fff' : 'var(--muted-foreground)', fontSize: 12 }}
+            >
+              {clipboardCopied ? <ClipboardCheck size={13} /> : <Clipboard size={13} />}
+              {clipboardCopied ? 'Copiado!' : 'Copiar imagem'}
+            </button>
+          )}
           <button
             onClick={handleSave}
             disabled={saved}
@@ -207,9 +236,19 @@ export default function Resultados2() {
       {/* ── Images gallery — grouped by estrutura ── */}
       {images.length > 0 && (
         <div className="flex flex-col gap-5">
-          <h3 style={{ color: 'var(--foreground)', fontWeight: 700, fontSize: '1rem', margin: 0 }}>
-            Imagens geradas — {images.length} criativos
-          </h3>
+          <div className="flex items-center justify-between gap-3">
+            <h3 style={{ color: 'var(--foreground)', fontWeight: 700, fontSize: '1rem', margin: 0 }}>
+              Imagens geradas — {images.length} criativos
+            </h3>
+            <button
+              onClick={() => setComparisonMode(m => !m)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all"
+              style={{ backgroundColor: comparisonMode ? '#0055FF' : 'var(--secondary)', color: comparisonMode ? '#fff' : 'var(--muted-foreground)', border: comparisonMode ? 'none' : '1px solid var(--border)', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+            >
+              {comparisonMode ? <LayoutGrid size={12} /> : <Columns2 size={12} />}
+              {comparisonMode ? 'Galeria' : 'Comparar'}
+            </button>
+          </div>
 
           {estruturas.map(e => {
             const eCrs = images.filter(c => c.estrutura === e)
@@ -227,6 +266,25 @@ export default function Resultados2() {
                   <div style={{ flex: 1, height: 1, backgroundColor: 'var(--border)' }} />
                 </div>
 
+                {comparisonMode ? (
+                  <div style={{ overflowX: 'auto', paddingBottom: 8 }}>
+                    <div className="flex gap-3" style={{ width: 'max-content' }}>
+                      {eCrs.map(cr => (
+                        <div key={cr.id} className="flex flex-col gap-1.5 flex-shrink-0" style={{ width: cr.formato === '4:5' ? 160 : 100 }}>
+                          <div className="rounded-xl overflow-hidden" style={{ aspectRatio: cr.formato === '4:5' ? '4/5' : '9/16', cursor: 'pointer' }}
+                            onClick={() => setPreviewImage(cr)}>
+                            <img src={cr.imageDataUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          </div>
+                          <div className="text-center" style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>
+                            <div style={{ fontWeight: 600 }}>{cr.formato} · V{cr.variacao}</div>
+                            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(cr.copy?.headline ?? '').slice(0, 28)}{(cr.copy?.headline ?? '').length > 28 ? '…' : ''}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                <>
                 {/* Feed 4:5 */}
                 {eCrs.filter(c => c.formato === '4:5').length > 0 && (
                   <div className="flex flex-col gap-2">
@@ -255,6 +313,8 @@ export default function Resultados2() {
                       ))}
                     </div>
                   </div>
+                )}
+                </>
                 )}
               </div>
             )

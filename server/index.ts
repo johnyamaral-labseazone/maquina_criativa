@@ -36,6 +36,31 @@ function sanitizeKey(raw: string | undefined): string | undefined {
   return key || undefined
 }
 
+
+// ── Retry helper with exponential backoff ─────────────────────────────────────
+async function withRetry(
+  fn,
+  { times = 3, delayMs = 1000, label = 'request' } = {}
+) {
+  let lastError
+  for (let attempt = 1; attempt <= times; attempt++) {
+    try {
+      return await fn()
+    } catch (err) {
+      lastError = err
+      const isRateLimit = err instanceof Error && (err.message.includes('429') || err.message.toLowerCase().includes('rate limit'))
+      if (attempt < times && isRateLimit) {
+        const wait = delayMs * Math.pow(2, attempt - 1)
+        console.warn('⚠️  ' + label + ' rate-limited, retry ' + attempt + '/' + times + ' em ' + wait + 'ms')
+        await new Promise(r => setTimeout(r, wait))
+      } else {
+        break
+      }
+    }
+  }
+  throw lastError
+}
+
 const ANTHROPIC_KEY    = sanitizeKey(process.env.ANTHROPIC_API_KEY)
 const REPLICATE_KEY    = sanitizeKey(process.env.REPLICATE_API_TOKEN)
 const GOOGLE_KEY       = sanitizeKey(process.env.GOOGLE_API_KEY)
@@ -419,6 +444,24 @@ async function listElevenLabsVoices(): Promise<Array<{ voice_id: string; name: s
 const app = express()
 app.use(cors())
 app.use(express.json({ limit: '50mb' }))  // increased for presenter image base64
+
+// ── Auth middleware (optional) ────────────────────────────────────────────────
+const API_SECRET = sanitizeKey(process.env.API_SECRET)
+if (!API_SECRET) {
+  console.warn('⚠️  API_SECRET não configurado — endpoints abertos')
+}
+
+app.use('/api', (req, res, next) => {
+  if (!API_SECRET) return next()
+  const authHeader = req.headers['authorization']
+  const apiKeyHeader = req.headers['x-api-key']
+  const token = (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) ? authHeader.slice(7) : apiKeyHeader
+  if (token !== API_SECRET) {
+    res.status(401).json({ error: 'Não autorizado' })
+    return
+  }
+  next()
+})
 
 // Serve generated videos
 app.use('/temp', express.static(path.join(process.cwd(), 'temp')))
