@@ -1,7 +1,7 @@
 import { create } from 'zustand'
-import { LandingPageState, LandingPage, Block } from '../types/landingPage'
+import type { LandingPageState, LandingPage, Block } from '../types/landingPage'
 
-const generateId = () => crypto.getRandomUUID?.() || Math.random().toString(36).slice(2)
+const generateId = () => crypto.randomUUID?.() || Math.random().toString(36).slice(2)
 
 const DEFAULT_LANDING_PAGE: LandingPage = {
   id: generateId(),

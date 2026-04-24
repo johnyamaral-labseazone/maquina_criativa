@@ -1259,4 +1259,71 @@ Retorne APENAS JSON válido:
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
 
+// -- Landing Page: gerar LP completa com IA a partir de briefing ---------------
+app.post('/api/lp/generate', async (req, res) => {
+  if (!googleAI && !(anthropic)) {
+    res.status(503).json({ error: 'Nenhuma IA configurada' }); return
+  }
+  const { briefingUrl, briefingText, photoUrls = [] } = req.body as {
+    briefingUrl?: string; briefingText?: string; photoUrls?: string[]
+  }
+  if (!briefingUrl && !briefingText) {
+    res.status(400).json({ error: 'Informe briefingUrl ou briefingText' }); return
+  }
+  try {
+    let briefingContent = briefingText ?? ''
+    if (briefingUrl && !briefingContent) {
+      try {
+        const pr = await fetch(briefingUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(15000) })
+        const html = await pr.text()
+        briefingContent = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 12000)
+      } catch { briefingContent = `URL: ${briefingUrl}` }
+    }
+    const imageList = (photoUrls as string[]).filter(Boolean).map((u, i) => `IMAGEM_${i + 1}: ${u}`).join('\n')
+    const prompt = `${SEAZONE_CONTEXT}
+
+Voce e especialista em landing pages de alta conversao para imoveis Seazone.
+
+BRIEFING:
+${briefingContent}
+
+IMAGENS DISPONIVEIS:
+${imageList || 'Nenhuma — use src vazio.'}
+
+Gere uma landing page de vendas para investidores. Use as imagens fornecidas de forma estrategica.
+Siga as regras Seazone. Crie titulos impactantes, beneficios claros e CTAs diretos.
+Estrutura: Hero → Titulo → Diferenciais → Galeria → Dados financeiros → CTA
+Total: 10-14 blocos. Variar backgroundColor entre "#FFFFFF","#F8FAFF","#1C398E","#050B18".
+
+RETORNE APENAS JSON VALIDO:
+{"meta":{"name":"Nome da LP","productName":"Empreendimento","primaryColor":"#1C398E","secondaryColor":"#5EA500","backgroundColor":"#FFFFFF"},"blocks":[{"type":"image","data":{"src":"URL","alt":"desc","maxWidth":100},"paddingTop":0,"paddingBottom":0,"backgroundColor":"#050B18"},{"type":"text","data":{"content":"Titulo","fontSize":48,"fontWeight":"bold","color":"#FFFFFF","align":"center"},"paddingTop":60,"paddingBottom":20,"backgroundColor":"#1C398E"},{"type":"cta","data":{"text":"Quero investir","url":"#contato","buttonColor":"#5EA500","textColor":"#FFFFFF","size":"lg"},"paddingTop":40,"paddingBottom":60,"backgroundColor":"#FFFFFF"}]}`
+
+    let rt = ''
+    if (googleAI) {
+      const r = await googleAI.models.generateContent({ model: 'gemini-2.5-flash', contents: [{ role: 'user', parts: [{ text: prompt }] }] })
+      rt = r.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}'
+    } else if (anthropic) {
+      const m = await anthropic.messages.create({ model: 'claude-haiku-4-5-20251001', max_tokens: 4096, messages: [{ role: 'user', content: prompt }] })
+      rt = m.content[0].type === 'text' ? m.content[0].text : '{}'
+    }
+    const cleaned = rt.replace(/```json\n?|\n?```/g, '').trim()
+    const parsed = JSON.parse(cleaned) as { meta: Record<string, string>; blocks: any[] }
+    if (!Array.isArray(parsed.blocks)) throw new Error('Blocos invalidos na resposta da IA')
+    const blocks = parsed.blocks.map((b, i) => ({
+      id: `blk-${Date.now()}-${i}`,
+      order: i,
+      type: b.type,
+      data: { id: `dat-${Date.now()}-${i}`, ...b.data },
+      paddingTop: b.paddingTop ?? 20,
+      paddingBottom: b.paddingBottom ?? 20,
+      backgroundColor: b.backgroundColor,
+    }))
+    console.log(`[lp/generate] ${blocks.length} blocos — "${parsed.meta?.name}"`)
+    res.json({ meta: parsed.meta, blocks })
+  } catch (err) {
+    console.error('[lp/generate]', err)
+    res.status(500).json({ error: String(err) })
+  }
+})
+
 export default app

@@ -1794,3 +1794,153 @@ if (!process.env.VERCEL) {
     console.log(`    Claude (visão WhatsApp):      ${anthropic   ? '✅' : '⚠️  opcional'}\n`)
   })
 }
+
+// ── Landing Page: gerar LP completa com IA a partir de briefing ───────────────
+app.post('/api/lp/generate', async (req, res) => {
+  const ai = googleAI ?? (anthropic ? { models: null } : null)
+  if (!googleAI && !anthropic) {
+    res.status(503).json({ error: 'Nenhuma IA configurada (GOOGLE_API_KEY ou ANTHROPIC_API_KEY)' })
+    return
+  }
+
+  const { briefingUrl, briefingText, photoUrls = [] } = req.body as {
+    briefingUrl?: string
+    briefingText?: string
+    photoUrls?: string[]
+  }
+
+  if (!briefingUrl && !briefingText) {
+    res.status(400).json({ error: 'Informe briefingUrl ou briefingText' })
+    return
+  }
+
+  try {
+    // ── 1. Ler conteúdo do briefing ──────────────────────────────────────────
+    let briefingContent = briefingText ?? ''
+    if (briefingUrl && !briefingContent) {
+      try {
+        const pageRes = await fetch(briefingUrl, {
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+          signal: AbortSignal.timeout(15000),
+        })
+        const html = await pageRes.text()
+        briefingContent = html
+          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 12000)
+      } catch {
+        briefingContent = `URL do briefing: ${briefingUrl} (não foi possível acessar o conteúdo — use o campo de texto)`
+      }
+    }
+
+    // ── 2. Construir lista de imagens disponíveis ─────────────────────────────
+    const imageList = (photoUrls as string[])
+      .filter(Boolean)
+      .map((url, i) => `IMAGEM_${i + 1}: ${url}`)
+      .join('\n')
+
+    // ── 3. Prompt principal para gerar LP ─────────────────────────────────────
+    const GENERATE_LP_PROMPT = `
+${SEAZONE_CONTEXT}
+
+Você é um especialista em landing pages de alta conversão para empreendimentos imobiliários Seazone.
+Baseado no briefing e imagens abaixo, gere a estrutura COMPLETA de uma landing page de vendas.
+
+BRIEFING:
+${briefingContent}
+
+IMAGENS DISPONÍVEIS:
+${imageList || 'Nenhuma imagem fornecida — use imagem placeholder (string vazia).'}
+
+INSTRUÇÕES:
+- A LP deve converter investidores — destaque ROI, renda passiva, gestão profissional
+- Use TODAS as imagens disponíveis distribuídas estrategicamente
+- Siga RIGOROSAMENTE as regras Seazone (nenhum elemento proibido)
+- Crie textos persuasivos, títulos de impacto e CTAs diretos
+- Estrutura obrigatória: Hero com imagem principal → Título impactante → Diferenciais → Galeria → Dados financeiros → CTA final
+- Total de 10 a 14 blocos
+- backgroundColor de cada bloco pode variar entre: "#FFFFFF", "#F8FAFF", "#1C398E", "#050B18"
+- Textos em seções escuras devem ter color: "#FFFFFF" ou "#E0E8FF"
+- CTAs devem usar buttonColor: "#5EA500" ou "#1C398E"
+
+RETORNE APENAS JSON VÁLIDO (sem markdown) neste formato EXATO:
+{
+  "meta": {
+    "name": "Nome descritivo da LP",
+    "productName": "Nome do empreendimento",
+    "primaryColor": "#1C398E",
+    "secondaryColor": "#5EA500",
+    "backgroundColor": "#FFFFFF"
+  },
+  "blocks": [
+    {
+      "type": "image",
+      "data": { "src": "URL_OU_STRING_VAZIA", "alt": "Texto alternativo descritivo", "maxWidth": 100 },
+      "paddingTop": 0,
+      "paddingBottom": 0,
+      "backgroundColor": "#050B18"
+    },
+    {
+      "type": "text",
+      "data": { "content": "Texto do bloco", "fontSize": 48, "fontWeight": "bold", "color": "#FFFFFF", "align": "center" },
+      "paddingTop": 60,
+      "paddingBottom": 20,
+      "backgroundColor": "#1C398E"
+    },
+    {
+      "type": "cta",
+      "data": { "text": "Texto do botão", "url": "#contato", "buttonColor": "#5EA500", "textColor": "#FFFFFF", "size": "lg" },
+      "paddingTop": 40,
+      "paddingBottom": 60,
+      "backgroundColor": "#FFFFFF"
+    }
+  ]
+}
+`
+
+    let responseText = ''
+
+    if (googleAI) {
+      const result = await googleAI.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [{ role: 'user', parts: [{ text: GENERATE_LP_PROMPT }] }],
+      })
+      responseText = result.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}'
+    } else if (anthropic) {
+      const msg = await anthropic.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 4096,
+        messages: [{ role: 'user', content: GENERATE_LP_PROMPT }],
+      })
+      responseText = msg.content[0].type === 'text' ? msg.content[0].text : '{}'
+    }
+
+    // ── 4. Parsear e validar resposta ─────────────────────────────────────────
+    const cleaned = responseText.replace(/```json\n?|\n?```/g, '').trim()
+    const parsed = JSON.parse(cleaned) as { meta: Record<string, string>; blocks: any[] }
+
+    if (!parsed.blocks || !Array.isArray(parsed.blocks)) {
+      throw new Error('IA não retornou blocos válidos')
+    }
+
+    // Atribuir IDs e order aos blocos
+    const blocksWithIds = parsed.blocks.map((block, index) => ({
+      id: `block-${Date.now()}-${index}`,
+      order: index,
+      type: block.type,
+      data: { id: `data-${Date.now()}-${index}`, ...block.data },
+      paddingTop: block.paddingTop ?? 20,
+      paddingBottom: block.paddingBottom ?? 20,
+      backgroundColor: block.backgroundColor,
+    }))
+
+    console.log(`[lp/generate] LP gerada com ${blocksWithIds.length} blocos — "${parsed.meta?.name}"`)
+    res.json({ meta: parsed.meta, blocks: blocksWithIds })
+  } catch (err) {
+    console.error('[lp/generate]', err)
+    res.status(500).json({ error: String(err) })
+  }
+})

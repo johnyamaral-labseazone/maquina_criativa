@@ -13,6 +13,7 @@ const STATUS_CONFIG = {
   waiting: { label: 'Revisão',     color: '#EA580C',                   bg: 'rgba(234,88,12,0.1)',        icon: Edit3 },
   done:    { label: 'Concluído',   color: '#5EA500',                   bg: 'rgba(94,165,0,0.1)',         icon: CheckCircle2 },
   error:   { label: 'Erro',        color: '#EF4444',                   bg: 'rgba(239,68,68,0.1)',        icon: AlertCircle },
+}
 
 const PHASE_ESTIMATES = { 1: 45, 2: 120, 3: 20 }
 
@@ -77,6 +78,28 @@ function AgentLogs({ logs }: { logs: AgentBase['logs'] }) {
           <span style={{ color: logColors[l.type] }}>{l.msg}</span>
         </div>
       ))}
+    </div>
+  )
+}
+
+// ── Phase label ───────────────────────────────────────────────────────────────
+function PhaseLabel({ number, label, active, done, estimate }: { number: number; label: string; active: boolean; done: boolean; estimate: number }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
+      <span style={{ width: 20, height: 20, borderRadius: "50%", backgroundColor: done ? "#5EA500" : active ? "#1C398E" : "var(--secondary)", color: done || active ? "#fff" : "var(--muted-foreground)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{done ? "✓" : number}</span>
+      <span style={{ fontSize: 12, fontWeight: 600, color: active ? "var(--foreground)" : "var(--muted-foreground)" }}>{label}</span>
+      {active && <PhaseTimer active={active} estimate={estimate} />}
+    </div>
+  )
+}
+
+// ── Restart panel ─────────────────────────────────────────────────────────────
+function RestartPanel({ problemas, onRestart }: { problemas: string[]; onRestart: (obs: string) => void }) {
+  return (
+    <div style={{ padding: 12, backgroundColor: "rgba(239,68,68,0.08)", borderRadius: 8, border: "1px solid rgba(239,68,68,0.2)" }}>
+      <p style={{ color: "#EF4444", fontSize: 12, fontWeight: 600, margin: "0 0 6px" }}>Problemas detectados:</p>
+      {problemas.map((p, i) => <p key={i} style={{ color: "var(--foreground)", fontSize: 12, margin: "2px 0" }}>• {p}</p>)}
+      <button onClick={() => onRestart("")} style={{ marginTop: 8, padding: "6px 14px", borderRadius: 6, border: "none", backgroundColor: "#EF4444", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Reiniciar com feedback</button>
     </div>
   )
 }
