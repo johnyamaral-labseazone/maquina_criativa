@@ -1,4 +1,5 @@
 import { StrictMode } from 'react'
+import AppLandingPageBuilder from './AppLandingPageBuilder'
 import { createRoot } from 'react-dom/client'
 import { HashRouter, Routes, Route } from 'react-router-dom'
 import './index.css'
@@ -13,6 +14,7 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/" element={<Hub />} />
         <Route path="/whatsapp" element={<AppWhatsapp />} />
         <Route path="/campanha2" element={<AppCampanha2 />} />
+        <Route path="/landing-page-builder" element={<AppLandingPageBuilder />} />
       </Routes>
     </HashRouter>
   </StrictMode>,
