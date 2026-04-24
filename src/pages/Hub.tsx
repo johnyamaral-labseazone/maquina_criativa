@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { useHistory2Store } from '../stores/history2Store'
 import { Logo } from '../imports/Logo1'
-import { ArrowRight, MessageSquare, Bot, Construction, History, Clock, Palette } from 'lucide-react'
+import { ArrowRight, MessageSquare, Bot, Construction, History, Clock, Palette, Layout } from 'lucide-react'
 
 const APPS = [
   {
@@ -34,6 +34,36 @@ const APPS = [
     status: 'stable' as const,
     destaque: false,
   },
+  {
+    id: 'landing-page-builder',
+    path: '/landing-page-builder',
+    title: 'Construtor de Landing Pages',
+    description: 'Crie landing pages otimizadas para vendas com ediÁ„o simples de blocos, imagens e CTA. PrÈvia em desktop e mobile antes de publicar.',
+    icon: Layout,
+    accent: 'linear-gradient(135deg, #EA580C, #FF7A3D)',
+    accentSolid: '#EA580C',
+    accentLight: 'rgba(234,88,12,0.07)',
+    accentBorder: 'rgba(234,88,12,0.18)',
+    formats: ['Desktop', 'Mobile', 'Blocos edit·veis'],
+    badge: 'Landing Pages',
+    status: 'stable' as const,
+    destaque: false,
+  },
+  {
+    id: 'landing-page-builder',
+    path: '/landing-page-builder',
+    title: 'Construtor de Landing Pages',
+    description: 'Crie landing pages otimizadas para vendas com edi√ß√£o simples de blocos, imagens e CTA. Pr√©via em desktop e mobile antes de publicar.',
+    icon: Layout,
+    accent: 'linear-gradient(135deg, #EA580C, #FF7A3D)',
+    accentSolid: '#EA580C',
+    accentLight: 'rgba(234,88,12,0.07)',
+    accentBorder: 'rgba(234,88,12,0.18)',
+    formats: ['Desktop', 'Mobile', 'Blocos edit√°veis'],
+    badge: 'Landing Pages',
+    status: 'stable' as const,
+    destaque: false,
+  }
 ]
 
 
